@@ -1,3 +1,5 @@
+**IMPORTANT**: **Whenever any important or major change is made, update this `AGENTS.md` file** to keep the codebase overview current.
+
 # GitHub Workflow
 
 Repository: `https://github.com/VijeshVS/catalyst`
@@ -16,7 +18,7 @@ This workflow is triggered **only when the user asks to push code to GitHub**.
 5. **Push the new branch** to GitHub.
 6. **Create a Pull Request** from the new branch into `main`.
 7. **Never push directly to `main`**, even if the user asks to push the code.
-8. **Whenever any important or major change is made, update this `AGENTS.md` file** to keep the codebase overview current.
+
 
 # Catalyst — Codebase Architecture
 
