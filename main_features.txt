@@ -1,9 +1,0 @@
-# Main Features
-
-Vijesh
-- Emergency Kill Switch - Easy
-- Gradual/Canary Rollouts - Medium
-
-Arun
-- Targeted Beta Testing - Medium
-- Environment Specific Configuration - Easy
