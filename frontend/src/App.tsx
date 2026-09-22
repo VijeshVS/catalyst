@@ -136,15 +136,7 @@ export function App() {
     <div className="catalyst-container">
       {/* Header */}
       {error && (
-        <div style={{
-          background: 'rgba(244, 63, 94, 0.15)',
-          border: '1px solid rgba(244, 63, 94, 0.4)',
-          color: '#fb7185',
-          padding: '12px 16px',
-          borderRadius: '8px',
-          marginBottom: '20px',
-          fontSize: '14px',
-        }}>
+        <div className="error-banner">
           ⚠️ {error}
         </div>
       )}
@@ -192,7 +184,7 @@ export function App() {
         </div>
         <div className="stat-card">
           <div className="stat-label">Active Environment</div>
-          <div className="stat-value" style={{ color: 'var(--accent-cyan)' }}>
+          <div className="stat-value" style={{ color: 'var(--gold-bright)' }}>
             {env.toUpperCase()}
           </div>
         </div>
@@ -200,7 +192,7 @@ export function App() {
           <div className="stat-label">Emergency Kills Active</div>
           <div
             className="stat-value"
-            style={{ color: activeKillSwitches > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}
+            style={{ color: activeKillSwitches > 0 ? 'var(--danger-bright)' : 'var(--success)' }}
           >
             {activeKillSwitches}
           </div>
@@ -217,13 +209,11 @@ export function App() {
 
       {/* Flag List */}
       {loading && flags.length === 0 ? (
-        <p style={{ color: 'var(--text-secondary)' }}>Loading feature flags...</p>
+        <p className="loading-text">Loading feature flags...</p>
       ) : flags.length === 0 ? (
-        <div className="flag-card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
-            No feature flags found for this environment.
-          </p>
-          <button className="btn-primary" style={{ margin: '0 auto' }} onClick={() => setIsModalOpen(true)}>
+        <div className="flag-card empty-state">
+          <p>No feature flags found for this environment.</p>
+          <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
             Create your first flag
           </button>
         </div>
@@ -244,7 +234,7 @@ export function App() {
                     <div className="flag-title-area">
                       <h3 className="flag-name">{flag.name}</h3>
                       <span className="flag-key-badge">{flag.key}</span>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
                         Default: {flag.default_value ? 'true' : 'false'}
                       </span>
                     </div>
@@ -265,7 +255,7 @@ export function App() {
                 <div className="rollout-box">
                   <div className="rollout-header">
                     <span>Gradual Canary Rollout</span>
-                    <span style={{ color: 'var(--accent-cyan)' }}>{state.percentage}%</span>
+                    <span>{state.percentage}%</span>
                   </div>
                   <input
                     type="range"
@@ -275,15 +265,14 @@ export function App() {
                     disabled={!state.enabled}
                     onChange={(e) => handleRolloutChange(flag, parseInt(e.target.value))}
                     className="rollout-slider"
+                    style={{ '--value': `${state.percentage}%` } as React.CSSProperties}
                   />
                 </div>
 
                 {/* Live Evaluation Playground */}
                 <div className="playground-box">
                   <div className="playground-input-group">
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Test User ID:
-                    </span>
+                    <span>Test User ID:</span>
                     <input
                       type="text"
                       className="playground-input"
@@ -306,11 +295,11 @@ export function App() {
                   </div>
 
                   {pgState.result && (
-                    <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <span className={`eval-badge ${pgState.result.value ? 'true' : 'false'}`}>
                         {pgState.result.value ? 'SERVED: TRUE' : 'SERVED: FALSE'}
                       </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '0.3px' }}>
                         ({pgState.result.reason})
                       </span>
                     </div>
