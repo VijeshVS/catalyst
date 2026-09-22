@@ -24,14 +24,14 @@
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
   font-size: 20px;
-  color: white;
-  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+  color: #1a1207;
+  box-shadow: 0 4px 16px rgba(212, 175, 55, 0.4);
 }
 
 .brand-title {
@@ -54,7 +54,7 @@
 /* Environment Pills */
 .env-selector {
   display: flex;
-  background: rgba(31, 41, 55, 0.6);
+  background: rgba(18, 14, 9, 0.8);
   border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 4px;
@@ -71,9 +71,9 @@
 }
 
 .env-btn.active {
-  background: var(--accent-blue);
-  color: white;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+  background: var(--accent-cyan);
+  color: #1b140b;
+  box-shadow: 0 2px 10px rgba(212, 175, 55, 0.38);
 }
 
 /* Health Badge */
@@ -85,17 +85,17 @@
   border-radius: 20px;
   font-size: 12px;
   font-weight: 600;
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  color: #34d399;
+  background: rgba(89, 196, 143, 0.16);
+  border: 1px solid rgba(89, 196, 143, 0.38);
+  color: #7fe2af;
 }
 
 .health-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: #10b981;
-  box-shadow: 0 0 8px #10b981;
+  background-color: #59c48f;
+  box-shadow: 0 0 8px #59c48f;
   animation: pulse 2s infinite;
 }
 
@@ -154,8 +154,8 @@
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  color: white;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+  color: #1a1207;
   padding: 10px 18px;
   border-radius: 8px;
   font-weight: 600;
@@ -164,11 +164,11 @@
   align-items: center;
   gap: 8px;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 14px rgba(212, 175, 55, 0.34);
 }
 
 .btn-primary:hover {
-  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45);
+  box-shadow: 0 6px 20px rgba(212, 175, 55, 0.45);
   transform: translateY(-1px);
 }
 
@@ -211,13 +211,13 @@
 }
 
 .flag-key-badge {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(242, 205, 99, 0.08);
   border: 1px solid var(--border-color);
   padding: 3px 10px;
   border-radius: 6px;
   font-family: monospace;
   font-size: 13px;
-  color: var(--accent-cyan);
+  color: var(--accent-blue);
 }
 
 .flag-desc {
@@ -239,22 +239,22 @@
 }
 
 .kill-switch-btn.active {
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #34d399;
+  background: rgba(89, 196, 143, 0.15);
+  border: 1px solid rgba(89, 196, 143, 0.38);
+  color: #8deab9;
 }
 
 .kill-switch-btn.killed {
-  background: rgba(244, 63, 94, 0.2);
-  border: 1px solid rgba(244, 63, 94, 0.5);
-  color: #fb7185;
-  box-shadow: 0 0 14px rgba(244, 63, 94, 0.3);
+  background: rgba(240, 113, 120, 0.22);
+  border: 1px solid rgba(240, 113, 120, 0.5);
+  color: #ff9ba0;
+  box-shadow: 0 0 14px rgba(240, 113, 120, 0.3);
   animation: shake 0.3s ease;
 }
 
 /* Rollout Section */
 .rollout-box {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(11, 9, 6, 0.55);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 16px;
@@ -271,14 +271,14 @@
 
 .rollout-slider {
   width: 100%;
-  accent-color: var(--accent-cyan);
+  accent-color: var(--accent-blue);
   cursor: pointer;
   height: 6px;
 }
 
 /* Playground */
 .playground-box {
-  background: rgba(15, 23, 42, 0.6);
+  background: rgba(14, 11, 7, 0.62);
   border: 1px dashed var(--border-color);
   border-radius: 12px;
   padding: 14px 16px;
@@ -297,9 +297,9 @@
 }
 
 .playground-input {
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(7, 6, 4, 0.62);
   border: 1px solid var(--border-color);
-  color: white;
+  color: var(--text-primary);
   padding: 7px 12px;
   border-radius: 6px;
   font-size: 13px;
@@ -307,9 +307,9 @@
 }
 
 .playground-btn {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(242, 205, 99, 0.1);
   border: 1px solid var(--border-color);
-  color: white;
+  color: var(--text-primary);
   padding: 7px 14px;
   border-radius: 6px;
   font-size: 13px;
@@ -318,7 +318,7 @@
 }
 
 .playground-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(242, 205, 99, 0.2);
 }
 
 .eval-badge {
@@ -330,22 +330,22 @@
 }
 
 .eval-badge.true {
-  background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: rgba(89, 196, 143, 0.2);
+  color: #8deab9;
+  border: 1px solid rgba(89, 196, 143, 0.42);
 }
 
 .eval-badge.false {
-  background: rgba(107, 114, 128, 0.2);
-  color: #9ca3af;
-  border: 1px solid rgba(107, 114, 128, 0.3);
+  background: rgba(159, 133, 80, 0.16);
+  color: #d0b274;
+  border: 1px solid rgba(159, 133, 80, 0.42);
 }
 
 /* Modal */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(4, 3, 2, 0.78);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -360,7 +360,7 @@
   padding: 28px;
   width: 100%;
   max-width: 480px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 40px rgba(7, 5, 3, 0.65);
 }
 
 .form-group {
@@ -377,9 +377,9 @@
 
 .form-input {
   width: 100%;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(9, 7, 5, 0.7);
   border: 1px solid var(--border-color);
-  color: white;
+  color: var(--text-primary);
   padding: 9px 14px;
   border-radius: 8px;
   font-size: 14px;
@@ -387,7 +387,8 @@
 
 .form-input:focus {
   outline: none;
-  border-color: var(--accent-blue);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.2);
 }
 
 .modal-actions {
@@ -398,10 +399,14 @@
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(242, 205, 99, 0.1);
   color: var(--text-secondary);
   padding: 9px 16px;
   border-radius: 8px;
   font-weight: 600;
   font-size: 14px;
+}
+
+.btn-secondary:hover {
+  background: rgba(242, 205, 99, 0.2);
 }

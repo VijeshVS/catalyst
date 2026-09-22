@@ -108,6 +108,7 @@ Evaluation follows the implemented evaluator logic:
 
 * Built with **React + Vite + TypeScript**.
 * Main dashboard is implemented in `frontend/src/App.tsx`.
+* Global theme tokens are centralized in `frontend/src/index.css`, with a **retro black-gold** palette reused across dashboard components in `frontend/src/App.css`.
 * Supports:
 
   * `DEV / STAGING / PROD` environment switching

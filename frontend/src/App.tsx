@@ -137,9 +137,9 @@ export function App() {
       {/* Header */}
       {error && (
         <div style={{
-          background: 'rgba(244, 63, 94, 0.15)',
-          border: '1px solid rgba(244, 63, 94, 0.4)',
-          color: '#fb7185',
+          background: 'var(--status-danger-bg)',
+          border: '1px solid var(--status-danger-border)',
+          color: 'var(--status-danger-text)',
           padding: '12px 16px',
           borderRadius: '8px',
           marginBottom: '20px',

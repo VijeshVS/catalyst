@@ -1,21 +1,25 @@
 :root {
-  --bg-primary: #0b0f19;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1f2937;
-  --bg-card: rgba(17, 24, 39, 0.75);
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.16);
+  --bg-primary: #0a0805;
+  --bg-secondary: #14100b;
+  --bg-tertiary: #221a10;
+  --bg-card: rgba(23, 17, 10, 0.82);
+  --border-color: rgba(212, 175, 55, 0.24);
+  --border-hover: rgba(242, 205, 99, 0.52);
   
-  --text-primary: #f9fafb;
-  --text-secondary: #9ca3af;
-  --text-muted: #6b7280;
+  --text-primary: #f8ebc5;
+  --text-secondary: #d9bf7b;
+  --text-muted: #9f8550;
   
-  --accent-cyan: #06b6d4;
-  --accent-blue: #3b82f6;
-  --accent-purple: #8b5cf6;
-  --accent-emerald: #10b981;
-  --accent-rose: #f43f5e;
-  --accent-amber: #f59e0b;
+  --accent-cyan: #d4af37;
+  --accent-blue: #f2cd63;
+  --accent-purple: #b8892f;
+  --accent-emerald: #59c48f;
+  --accent-rose: #f07178;
+  --accent-amber: #f0bc59;
+
+  --status-danger-bg: rgba(240, 113, 120, 0.16);
+  --status-danger-border: rgba(240, 113, 120, 0.42);
+  --status-danger-text: #ff9ba0;
 
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif;
 }
@@ -32,8 +36,10 @@ body {
   font-family: var(--font-family);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
-  background-image: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
-                    radial-gradient(circle at 100% 50%, rgba(139, 92, 246, 0.05) 0%, transparent 40%);
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(212, 175, 55, 0.18) 0%, transparent 45%),
+    radial-gradient(circle at 100% 20%, rgba(184, 137, 47, 0.14) 0%, transparent 40%),
+    linear-gradient(180deg, #0f0b07 0%, #090705 100%);
   background-attachment: fixed;
 }
 
