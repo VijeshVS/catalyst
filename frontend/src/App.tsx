@@ -1,13 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import './App.css';
-import type { Flag, HealthStatus, EvaluateResult } from './api';
-import {
-  fetchFlags,
-  fetchHealth,
-  createFlag,
-  updateFlagEnvState,
-  evaluateFlag,
-} from './api';
+import type { EvaluateResult, Flag, HealthStatus } from './api';
+import { createFlag, evaluateFlag, fetchFlags, fetchHealth, updateFlagEnvState } from './api';
+
+const navItems = ['Overview', 'Feature Flags', 'Rollouts', 'Evaluation', 'Audit'];
 
 export function App() {
   const [env, setEnv] = useState<'dev' | 'staging' | 'prod'>('dev');
@@ -16,23 +12,17 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-
-  // Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newKey, setNewKey] = useState('');
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newDefault, setNewDefault] = useState(false);
 
-  // Playground state per flag: { [flagKey]: { userId: string, result?: EvaluateResult, evaluating?: boolean } }
   const [playground, setPlayground] = useState<Record<string, { userId: string; result?: EvaluateResult; evaluating?: boolean }>>({});
 
   const loadData = async () => {
     try {
-      const [healthData, flagsData] = await Promise.all([
-        fetchHealth().catch(() => null),
-        fetchFlags().catch(() => []),
-      ]);
+      const [healthData, flagsData] = await Promise.all([fetchHealth().catch(() => null), fetchFlags().catch(() => [])]);
       if (healthData) setHealth(healthData);
       setFlags(flagsData);
       setError(null);
@@ -58,14 +48,13 @@ export function App() {
       await updateFlagEnvState(flag.key, env, { enabled: newEnabled });
       await loadData();
     } catch (err: any) {
-      alert('Error updating kill switch: ' + err.message);
+      alert(`Error updating kill switch: ${err.message}`);
     }
   };
 
   const handleRolloutChange = async (flag: Flag, percentage: number) => {
     try {
       await updateFlagEnvState(flag.key, env, { percentage });
-      // Optimistic update
       setFlags((prev) =>
         prev.map((f) => {
           if (f.id !== flag.id) return f;
@@ -76,7 +65,7 @@ export function App() {
         })
       );
     } catch (err: any) {
-      alert('Error updating rollout %: ' + err.message);
+      alert(`Error updating rollout %: ${err.message}`);
     }
   };
 
@@ -96,7 +85,7 @@ export function App() {
       setNewDefault(false);
       await loadData();
     } catch (err: any) {
-      alert('Error creating flag: ' + err.message);
+      alert(`Error creating flag: ${err.message}`);
     }
   };
 
@@ -119,7 +108,7 @@ export function App() {
         ...prev,
         [flagKey]: { userId, result: res, evaluating: false },
       }));
-    } catch (err: any) {
+    } catch {
       setPlayground((prev) => ({
         ...prev,
         [flagKey]: { ...state, evaluating: false },
@@ -132,25 +121,12 @@ export function App() {
     return s && !s.enabled;
   }).length;
 
-  return (
-    <div className="catalyst-container">
-      {/* Header */}
-      {error && (
-        <div style={{
-          background: 'rgba(244, 63, 94, 0.15)',
-          border: '1px solid rgba(244, 63, 94, 0.4)',
-          color: '#fb7185',
-          padding: '12px 16px',
-          borderRadius: '8px',
-          marginBottom: '20px',
-          fontSize: '14px',
-        }}>
-          ⚠️ {error}
-        </div>
-      )}
+  const healthIsOk = health?.status === 'ok';
 
-      <header className="catalyst-header">
-        <div className="brand-section">
+  return (
+    <div className="app-shell">
+      <header className="top-header">
+        <div className="top-header-left">
           <div className="brand-logo">C</div>
           <div>
             <h1 className="brand-title">Catalyst</h1>
@@ -158,175 +134,181 @@ export function App() {
           </div>
         </div>
 
-        <div className="header-controls">
-          {/* Environment Switcher */}
+        <div className="top-header-right">
           <div className="env-selector">
             {(['dev', 'staging', 'prod'] as const).map((e) => (
-              <button
-                key={e}
-                className={`env-btn ${env === e ? 'active' : ''}`}
-                onClick={() => setEnv(e)}
-              >
+              <button key={e} className={`env-btn ${env === e ? 'active' : ''}`} onClick={() => setEnv(e)}>
                 {e.toUpperCase()}
               </button>
             ))}
           </div>
-
-          {/* Health Status Pill */}
-          <div className="health-badge">
-            <span className="health-dot"></span>
-            <span>
-              {health?.status === 'ok'
-                ? `System Healthy (${health.database === 'ok' ? 'PG' : 'DB'} + ${health.redis === 'ok' ? 'Redis' : 'Cache'})`
-                : 'Connecting to API...'}
-            </span>
-          </div>
+          <span className="header-account">@VijeshVS</span>
         </div>
       </header>
 
-      {/* Stats Bar */}
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Total Flags</div>
-          <div className="stat-value">{flags.length}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Active Environment</div>
-          <div className="stat-value" style={{ color: 'var(--accent-cyan)' }}>
-            {env.toUpperCase()}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Emergency Kills Active</div>
-          <div
-            className="stat-value"
-            style={{ color: activeKillSwitches > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}
-          >
-            {activeKillSwitches}
-          </div>
-        </div>
-      </div>
+      <div className="shell-body">
+        <aside className="left-rail">
+          <nav className="rail-nav">
+            {navItems.map((item, index) => (
+              <button key={item} className={`rail-item ${index === 1 ? 'active' : ''}`} type="button">
+                {item}
+              </button>
+            ))}
+          </nav>
+        </aside>
 
-      {/* Action Bar */}
-      <div className="action-bar">
-        <h2 className="section-heading">Feature Flags ({env})</h2>
-        <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
-          + Create Flag
-        </button>
-      </div>
+        <main className="dashboard-main">
+          {error && <div className="error-banner">⚠️ {error}</div>}
 
-      {/* Flag List */}
-      {loading && flags.length === 0 ? (
-        <p style={{ color: 'var(--text-secondary)' }}>Loading feature flags...</p>
-      ) : flags.length === 0 ? (
-        <div className="flag-card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
-            No feature flags found for this environment.
-          </p>
-          <button className="btn-primary" style={{ margin: '0 auto' }} onClick={() => setIsModalOpen(true)}>
-            Create your first flag
-          </button>
-        </div>
-      ) : (
-        <div className="flag-list">
-          {flags.map((flag) => {
-            const state = flag.states.find((s) => s.env === env) || {
-              enabled: true,
-              percentage: 0,
-              version: 1,
-            };
-            const pgState = playground[flag.key] || { userId: 'user_123' };
+          <section className="page-intro">
+            <div>
+              <h2 className="page-title">Feature Dashboard</h2>
+              <p className="page-subtitle">Manage flags, rollout strategy, and runtime validation in one place.</p>
+            </div>
+            <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
+              + Create Flag
+            </button>
+          </section>
 
-            return (
-              <div key={flag.id} className="flag-card">
-                <div className="flag-card-header">
-                  <div>
-                    <div className="flag-title-area">
-                      <h3 className="flag-name">{flag.name}</h3>
-                      <span className="flag-key-badge">{flag.key}</span>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Default: {flag.default_value ? 'true' : 'false'}
-                      </span>
-                    </div>
-                    {flag.description && <p className="flag-desc">{flag.description}</p>}
-                  </div>
-
-                  {/* Kill Switch Toggle */}
-                  <button
-                    className={`kill-switch-btn ${state.enabled ? 'active' : 'killed'}`}
-                    onClick={() => handleToggleKillSwitch(flag)}
-                    title="Click to toggle Emergency Kill Switch"
-                  >
-                    {state.enabled ? '🛡️ Live (Active)' : '🚨 EMERGENCY KILLED'}
-                  </button>
-                </div>
-
-                {/* Rollout Slider */}
-                <div className="rollout-box">
-                  <div className="rollout-header">
-                    <span>Gradual Canary Rollout</span>
-                    <span style={{ color: 'var(--accent-cyan)' }}>{state.percentage}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={state.percentage}
-                    disabled={!state.enabled}
-                    onChange={(e) => handleRolloutChange(flag, parseInt(e.target.value))}
-                    className="rollout-slider"
-                  />
-                </div>
-
-                {/* Live Evaluation Playground */}
-                <div className="playground-box">
-                  <div className="playground-input-group">
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Test User ID:
-                    </span>
-                    <input
-                      type="text"
-                      className="playground-input"
-                      value={pgState.userId}
-                      onChange={(e) =>
-                        setPlayground((prev) => ({
-                          ...prev,
-                          [flag.key]: { ...pgState, userId: e.target.value },
-                        }))
-                      }
-                      placeholder="e.g. user_123 or alice@acme.com"
-                    />
-                    <button
-                      className="playground-btn"
-                      onClick={() => handlePlaygroundEvaluate(flag.key)}
-                      disabled={pgState.evaluating}
-                    >
-                      {pgState.evaluating ? 'Evaluating...' : 'Evaluate'}
-                    </button>
-                  </div>
-
-                  {pgState.result && (
-                    <div>
-                      <span className={`eval-badge ${pgState.result.value ? 'true' : 'false'}`}>
-                        {pgState.result.value ? 'SERVED: TRUE' : 'SERVED: FALSE'}
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' }}>
-                        ({pgState.result.reason})
-                      </span>
-                    </div>
-                  )}
+          <section className="dashboard-grid">
+            <div className="stats-grid">
+              <div className="dashboard-card stat-card">
+                <div className="stat-label">Total Flags</div>
+                <div className="stat-value">{flags.length}</div>
+              </div>
+              <div className="dashboard-card stat-card">
+                <div className="stat-label">Active Environment</div>
+                <div className="stat-value stat-value-env">{env.toUpperCase()}</div>
+              </div>
+              <div className="dashboard-card stat-card">
+                <div className="stat-label">Emergency Kills Active</div>
+                <div className={`stat-value ${activeKillSwitches > 0 ? 'stat-value-warning' : 'stat-value-good'}`}>
+                  {activeKillSwitches}
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
 
-      {/* Create Flag Modal */}
+            <section className="dashboard-card flags-panel">
+              <h3 className="section-heading">Feature Flags ({env.toUpperCase()})</h3>
+
+              {loading && flags.length === 0 ? (
+                <p className="loading-text">Loading feature flags...</p>
+              ) : flags.length === 0 ? (
+                <div className="empty-state">
+                  <p>No feature flags found for this environment.</p>
+                  <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
+                    Create your first flag
+                  </button>
+                </div>
+              ) : (
+                <div className="flag-list">
+                  {flags.map((flag) => {
+                    const state = flag.states.find((s) => s.env === env) || {
+                      enabled: true,
+                      percentage: 0,
+                      version: 1,
+                    };
+                    const pgState = playground[flag.key] || { userId: 'user_123' };
+
+                    return (
+                      <div key={flag.id} className="flag-card">
+                        <div className="flag-card-header">
+                          <div>
+                            <div className="flag-title-area">
+                              <h4 className="flag-name">{flag.name}</h4>
+                              <span className="flag-key-badge">{flag.key}</span>
+                              <span className="flag-default">Default: {flag.default_value ? 'true' : 'false'}</span>
+                            </div>
+                            {flag.description && <p className="flag-desc">{flag.description}</p>}
+                          </div>
+
+                          <button
+                            className={`kill-switch-btn ${state.enabled ? 'active' : 'killed'}`}
+                            onClick={() => handleToggleKillSwitch(flag)}
+                            title="Click to toggle Emergency Kill Switch"
+                          >
+                            {state.enabled ? '🛡️ Live (Active)' : '🚨 Emergency Killed'}
+                          </button>
+                        </div>
+
+                        <div className="rollout-box">
+                          <div className="rollout-header">
+                            <span>Gradual Canary Rollout</span>
+                            <span className="rollout-value">{state.percentage}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={state.percentage}
+                            disabled={!state.enabled}
+                            onChange={(e) => handleRolloutChange(flag, Number.parseInt(e.target.value, 10))}
+                            className="rollout-slider"
+                          />
+                        </div>
+
+                        <div className="playground-box">
+                          <div className="playground-input-group">
+                            <span className="playground-label">Test User ID:</span>
+                            <input
+                              type="text"
+                              className="playground-input"
+                              value={pgState.userId}
+                              onChange={(e) =>
+                                setPlayground((prev) => ({
+                                  ...prev,
+                                  [flag.key]: { ...pgState, userId: e.target.value },
+                                }))
+                              }
+                              placeholder="e.g. user_123 or alice@acme.com"
+                            />
+                            <button className="playground-btn" onClick={() => handlePlaygroundEvaluate(flag.key)} disabled={pgState.evaluating}>
+                              {pgState.evaluating ? 'Evaluating...' : 'Evaluate'}
+                            </button>
+                          </div>
+
+                          {pgState.result && (
+                            <div>
+                              <span className={`eval-badge ${pgState.result.value ? 'true' : 'false'}`}>
+                                {pgState.result.value ? 'SERVED: TRUE' : 'SERVED: FALSE'}
+                              </span>
+                              <span className="eval-reason">({pgState.result.reason})</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <aside className="dashboard-card side-panel">
+              <h3 className="section-heading">System Health</h3>
+              <p className="panel-subtext">Environment readiness and operational signals</p>
+              <div className={`health-badge ${healthIsOk ? 'ok' : 'pending'}`}>
+                <span className="health-dot" />
+                <span>
+                  {healthIsOk
+                    ? `Healthy (${health?.database === 'ok' ? 'PG' : 'DB'} + ${health?.redis === 'ok' ? 'Redis' : 'Cache'})`
+                    : 'Connecting to API...'}
+                </span>
+              </div>
+
+              <div className="side-list">
+                <div className="side-list-item">Row 1: KPI cards for usage and state.</div>
+                <div className="side-list-item">Row 2: Main feature flag management panel.</div>
+                <div className="side-list-item">Row 3: Rollout + evaluation tools inside each flag card.</div>
+              </div>
+            </aside>
+          </section>
+        </main>
+      </div>
+
       {isModalOpen && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ marginBottom: '18px' }}>Create Feature Flag</h2>
+            <h2 className="modal-title">Create Feature Flag</h2>
             <form onSubmit={handleCreateFlag}>
               <div className="form-group">
                 <label className="form-label">Flag Key (unique)</label>
@@ -361,24 +343,21 @@ export function App() {
                   rows={3}
                 />
               </div>
-              <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div className="form-group form-checkbox-row">
                 <input
                   type="checkbox"
                   id="defaultVal"
                   checked={newDefault}
                   onChange={(e) => setNewDefault(e.target.checked)}
+                  className="form-checkbox"
                 />
-                <label htmlFor="defaultVal" style={{ fontSize: '13px', cursor: 'pointer' }}>
+                <label htmlFor="defaultVal" className="form-checkbox-label">
                   Default Value (served when rollout is 0% or killed)
                 </label>
               </div>
 
               <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setIsModalOpen(false)}
-                >
+                <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary">
