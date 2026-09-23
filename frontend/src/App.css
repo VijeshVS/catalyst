@@ -122,7 +122,8 @@
 }
 
 .workspace-select:focus {
-  outline: none;
+  outline: 2px solid var(--gold-primary);
+  outline-offset: 1px;
 }
 
 .workspace-select:disabled {
