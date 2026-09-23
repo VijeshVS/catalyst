@@ -320,6 +320,7 @@ async def test_bootstrap_etag_scoping_and_invalidation(client):
     assert res.status_code == 200
     etag_b = res.headers["ETag"]
     assert set(res.json()["flags"]) == {"beta-feature"}
+    assert etag_a != etag_b
 
     # Conditional request -> 304 with the ETag echoed back
     res = await client.get(
@@ -329,6 +330,14 @@ async def test_bootstrap_etag_scoping_and_invalidation(client):
     )
     assert res.status_code == 304
     assert res.headers["ETag"] == etag_a
+
+    # Cross-project ETag must not validate a different project snapshot
+    res = await client.get(
+        f"{API}/bootstrap",
+        params={"project_id": project_b["id"], "env": "prod"},
+        headers={"If-None-Match": etag_a},
+    )
+    assert res.status_code == 200
 
     # Mutating project A must invalidate A's ETag...
     res = await client.patch(

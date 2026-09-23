@@ -31,7 +31,7 @@ async def get_bootstrap_snapshot(
     environment = await get_environment_or_404(db, project.id, env)
     env_version = environment.version
 
-    etag = f'W/"{env}-{env_version}"'
+    etag = f'W/"{project.id}:{env}:{env_version}"'
     client_etag = request.headers.get("if-none-match")
     if client_etag == etag:
         return Response(
