@@ -1,11 +1,12 @@
 from typing import Any, Dict
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.deps import get_environment_or_404, get_project_or_404
 from app.core.db import get_db
-from app.models.models import Flag, FlagEnvState, TargetingRule, Environment, Project
+from app.models.models import Flag
 from app.schemas.schemas import BootstrapResponse
 
 router = APIRouter(prefix="/bootstrap", tags=["SDK Bootstrap"])
@@ -15,29 +16,33 @@ router = APIRouter(prefix="/bootstrap", tags=["SDK Bootstrap"])
 async def get_bootstrap_snapshot(
     request: Request,
     response: Response,
+    project_id: str = Query(..., description="ID of the project that scopes this snapshot"),
     env: str = "prod",
     db: AsyncSession = Depends(get_db),
 ):
     """
     Returns full environment flag snapshot for SDK in-memory evaluation.
     Supports HTTP ETag and If-None-Match for 304 Not Modified.
+
+    The ETag derives from `Environment.version`, which is incremented by every
+    mutation that changes this project environment's flag snapshot.
     """
-    # Fetch environment version
-    env_stmt = select(Environment).where(Environment.name == env).limit(1)
-    env_res = await db.execute(env_stmt)
-    env_obj = env_res.scalar_one_or_none()
-    env_version = env_obj.version if env_obj else 1
+    project = await get_project_or_404(db, project_id)
+    environment = await get_environment_or_404(db, project.id, env)
+    env_version = environment.version
 
     etag = f'W/"{env}-{env_version}"'
     client_etag = request.headers.get("if-none-match")
     if client_etag == etag:
-        response.status_code = status.HTTP_304_NOT_MODIFIED
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED)
+        return Response(
+            status_code=status.HTTP_304_NOT_MODIFIED,
+            headers={"ETag": etag, "Cache-Control": "public, max-age=0, must-revalidate"},
+        )
 
-    # Fetch active flags
+    # Fetch active flags for this project only
     stmt = (
         select(Flag)
-        .where(Flag.archived == False)
+        .where(Flag.project_id == project.id, Flag.archived == False)
         .options(selectinload(Flag.states), selectinload(Flag.rules))
     )
     res = await db.execute(stmt)

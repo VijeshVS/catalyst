@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Annotated, Optional, Dict, Any, List
+from pydantic import BaseModel, Field, ConfigDict, StringConstraints
 
 
 # Evaluation
@@ -36,6 +36,50 @@ class BootstrapResponse(BaseModel):
     env: str
     version: int
     flags: Dict[str, Any]
+
+
+# Multi-Tenant Hierarchy (Organizations, Projects & Environments)
+class OrganizationCreate(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+
+
+class ProjectCreate(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+
+
+class EnvironmentCreate(BaseModel):
+    name: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, pattern=r"^[a-z][a-z0-9_-]{0,63}$"),
+    ] = Field(..., description="Lowercase environment identifier, e.g. qa or perf-test")
+
+
+class EnvironmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    name: str
+    version: int
+
+
+class ProjectResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    org_id: str
+    name: str
+    created_at: datetime
+    environments: List[EnvironmentResponse] = []
+
+
+class OrganizationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    created_at: datetime
+    projects: List[ProjectResponse] = []
 
 
 # Flag Management

@@ -6,18 +6,26 @@ This roadmap outlines upcoming features organized in the recommended implementat
 
 ## Phase 1: Multi-Tenant Hierarchy (Organizations, Projects & Environments)
 > **Goal:** Transition from default auto-provisioned entities to explicit management of Organizations, Projects, and scoped Environments.
+>
+> **Status: ✅ Complete.** All items below are implemented. Auto-provisioning of the default
+> organization/project was removed; every flag/evaluate/bootstrap/audit call now requires an
+> explicit `project_id` (422 when missing, 404 when unknown) and validates that the environment
+> belongs to that project. The bootstrap ETag bug was fixed: `Environment.version` is now bumped
+> by every snapshot-affecting mutation (flag creation, state/rollout/kill-switch updates), so
+> ETags invalidate correctly and stay isolated per project. Covered by 12 passing backend tests;
+> frontend `npm run lint` / `npm run build` pass.
 
-- [ ] **Backend: Organization Management**
+- [x] **Backend: Organization Management**
   - `POST /api/v1/organizations` — Create organization
   - `GET /api/v1/organizations` — List organizations
   - `GET /api/v1/organizations/{id}` — Get organization details
-- [ ] **Backend: Projects & Environments**
+- [x] **Backend: Projects & Environments**
   - `POST /api/v1/organizations/{org_id}/projects` — Create project
   - Auto-provision standard environments (`dev`, `staging`, `prod`) on project creation
   - `POST /api/v1/projects/{project_id}/environments` — Create custom environment
   - `GET /api/v1/projects/{project_id}/environments` — List project environments
   - Scope all flag queries and mutations strictly by `project_id`
-- [ ] **Frontend: Workspace Navigation**
+- [x] **Frontend: Workspace Navigation**
   - Organization & Project dropdown switcher in header navigation
   - "New Project" creation modal with auto-created environment badges
   - Project-level environment management view

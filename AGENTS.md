@@ -40,18 +40,20 @@ This workflow is triggered **only when the user asks to push code to GitHub**.
 catalyst/
 ├── backend/
 │   ├── app/
-│   │   ├── api/v1/          # Versioned API routes
+│   │   ├── api/v1/          # Versioned API routes (health, organizations, projects, flags, evaluate, bootstrap, audit) + shared deps
 │   │   ├── core/             # DB + Redis configuration
 │   │   ├── models/           # SQLAlchemy data models
-│   │   ├── services/         # Business logic / evaluation engine
+│   │   ├── schemas/          # Pydantic request/response schemas
+│   │   ├── services/         # Business logic (evaluator, environments)
 │   │   └── main.py           # FastAPI application entry point
-│   ├── tests/
+│   ├── tests/                # pytest suite (self-contained, SQLite-backed)
 │   └── pyproject.toml
 │
 ├── frontend/
 │   └── src/
-│       └── App.tsx           # Feature flag management dashboard
-│
+│       ├── App.tsx           # Feature flag dashboard + workspace navigation
+│       └── api.ts            # Typed API client (project-scoped)
+
 ├── docker-compose.yml        # PostgreSQL + Redis
 ├── .env.example              # Environment configuration
 ├── Makefile                  # Development commands
@@ -64,8 +66,24 @@ catalyst/
 * **SQLAlchemy 2.0 async** is used for PostgreSQL access through `asyncpg`.
 * **Redis** is used as the async caching layer with connection retry and health checks.
 * Database and Redis connectivity are exposed through `/healthz`.
-* API routes are versioned under `backend/app/api/v1/`.
-* Business logic for feature flag evaluation is isolated in `services/evaluator.py`.
+* API routes are versioned under `backend/app/api/v1/`; shared lookup helpers (`get_organization_or_404`, `get_project_or_404`, `get_environment_or_404`) live in `api/v1/deps.py`.
+* Business logic is isolated in `services/`: flag evaluation in `services/evaluator.py`, environment provisioning/state seeding/version invalidation in `services/environments.py`.
+
+### Multi-Tenant Hierarchy
+
+Organizations, projects, and environments are **explicitly managed** — there is no
+auto-provisioned default organization/project anymore:
+
+* `POST /api/v1/organizations` provisions an organization; names are unique (409).
+* Creating a project auto-provisions the standard `dev`, `staging`, `prod` environments.
+* Custom environments can be created per project (lowercase identifier, e.g. `qa`).
+  Creating one seeds `FlagEnvState` rows for every existing flag in the project.
+* Creating a flag seeds a state row for every environment of its project.
+* **Strict project scoping:** every flag/evaluation/bootstrap/audit endpoint requires a
+  `project_id` query parameter (`422` when missing, `404` when unknown), and all queries
+  filter by `Flag.project_id` / `AuditLog.project_id`. Environments must also belong to
+  the project (`404` otherwise), so identical flag keys can coexist in different projects
+  without leaking state, evaluation results, snapshots, or audit entries.
 
 ### Core Data Models
 
@@ -90,32 +108,45 @@ Evaluation follows the implemented evaluator logic:
 ### Important APIs
 
 * `GET /healthz` — DB + Redis health
-* `GET /api/v1/flags` — List flags
-* `POST /api/v1/flags` — Create flag
-* `PATCH /api/v1/flags/{key}/environments/{env}` — Update environment state / rollout / kill switch
-* `POST /api/v1/evaluate` — Evaluate a flag
-* `POST /api/v1/batch-evaluate` — Batch flag evaluation
-* `GET /api/v1/bootstrap` — SDK configuration snapshot
-* `GET /api/v1/audit` — Audit log
+* `POST /api/v1/organizations` — Create organization
+* `GET /api/v1/organizations` — List organizations (with projects & environments)
+* `GET /api/v1/organizations/{org_id}` — Organization details
+* `POST /api/v1/organizations/{org_id}/projects` — Create project (auto-provisions `dev`/`staging`/`prod`)
+* `GET /api/v1/projects/{project_id}/environments` — List project environments
+* `POST /api/v1/projects/{project_id}/environments` — Create custom environment
+* `GET /api/v1/flags?project_id=` — List flags (project-scoped)
+* `POST /api/v1/flags?project_id=` — Create flag
+* `PATCH /api/v1/flags/{key}/environments/{env}?project_id=` — Update environment state / rollout / kill switch
+* `POST /api/v1/evaluate?project_id=` — Evaluate a flag
+* `POST /api/v1/batch-evaluate?project_id=` — Batch flag evaluation
+* `GET /api/v1/bootstrap?project_id=&env=` — SDK configuration snapshot
+* `GET /api/v1/audit?project_id=` — Audit log (project-scoped)
 
 ### Bootstrap / Caching
 
-* `/bootstrap` provides the full SDK snapshot for an environment.
-* Supports **ETag-based conditional requests**.
-* Matching `If-None-Match` requests return `304 Not Modified`.
+* `/bootstrap` provides the full SDK snapshot for a **project environment**.
+* Supports **ETag-based conditional requests**; matching `If-None-Match` requests return
+  `304 Not Modified` with the ETag echoed back.
+* The ETag derives from the project environment's `Environment.version`, which is
+  incremented by every mutation that changes that snapshot (flag creation, rollout or
+  kill-switch updates). Mutations in one project never invalidate another project's ETag.
 
 ## Frontend Architecture
 
 * Built with **React + Vite + TypeScript**.
-* Main dashboard is implemented in `frontend/src/App.tsx`.
+* Main dashboard is implemented in `frontend/src/App.tsx`; the typed API client is `frontend/src/api.ts`.
 * Supports:
 
-  * `DEV / STAGING / PROD` environment switching
+  * **Workspace navigation:** organization & project dropdown switcher in the header
+  * **New Project modal** showing the auto-created `dev` / `staging` / `prod` environment badges, plus a **New Organization** onboarding flow for empty state
+  * **Environment management view** (per-project): lists environments with `auto-created` / `custom` badges and cache version, and creates custom environments
+  * Dynamic environment switcher driven by the selected project's environments (custom environments included)
   * PostgreSQL and Redis health indicators
   * Emergency Kill Switch
   * Percentage/canary rollout slider
   * In-dashboard flag evaluation playground
   * Feature flag creation
+  * All flag data calls are strictly scoped to the selected project
 
 ## Local Infrastructure
 
@@ -158,11 +189,25 @@ Backend tests are run using:
 uv run pytest
 ```
 
-Current initialization tests cover:
+The suite is **self-contained**: `tests/conftest.py` points the app at a temporary SQLite
+database (`aiosqlite`, dev dependency) before any app module is imported, so no
+PostgreSQL/Redis instance is needed and the development database is never touched.
+
+Current test coverage:
 
 * API health/root response
 * Deterministic sticky rollout hashing
 * Emergency Kill Switch behavior
 * Targeting rule evaluation
+* Organization CRUD and project creation with auto-provisioned environments
+* Custom environment management (validation, duplicates, seeding of flag states)
+* Strict project scoping and project isolation (flags, evaluate, bootstrap, audit)
+* Bootstrap ETag scoping and environment version invalidation (304 → 200 on mutation)
 
-The initialization walkthrough reports **5 tests passing**.
+The suite reports **12 tests passing**.
+
+Frontend checks:
+
+```bash
+cd frontend && npm run lint && npm run build
+```
