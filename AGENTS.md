@@ -131,6 +131,28 @@ Evaluation follows the implemented evaluator logic:
   incremented by every mutation that changes that snapshot (flag creation, rollout or
   kill-switch updates). Mutations in one project never invalidate another project's ETag.
 
+## Frontend Design System
+
+* **Theme**: Retro Black & Gold aesthetic.
+* **Fonts**: `Playfair Display` (headings, stat values, brand) + `IBM Plex Mono` (all UI text, labels, code badges).
+* **Palette** (CSS custom properties in `index.css`):
+  * `--gold-primary: #F5C518` — primary brand accent
+  * `--gold-bright: #FFD84D` — hover highlights
+  * `--amber-accent: #D4862A` — secondary gradient
+  * `--bg-primary: #0E0E0E` — page background
+  * `--text-primary: #F0E6C8` — warm parchment text
+  * `--danger-bright: #E74C3C` — kill switch / error states
+  * `--success: #27AE60` — live / healthy states
+* **Key visual patterns**:
+  * Glassmorphism dark cards with gold `border-color` tokens
+  * Left 3px gold vertical accent strip on flag cards
+  * Gold gradient CTA buttons (dark text)
+  * Pulsing crimson glow on kill switch when active
+  * Custom gold range slider (track fill + glow thumb)
+  * Dashed gold border playground boxes
+  * Subtle radial gold shimmer on body background
+* Design tokens are defined in `frontend/src/index.css`; component styles in `frontend/src/App.css`.
+
 ## Frontend Architecture
 
 * Built with **React + Vite + TypeScript**.

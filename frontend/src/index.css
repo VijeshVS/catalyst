@@ -1,49 +1,126 @@
-:root {
-  --bg-primary: #0b0f19;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1f2937;
-  --bg-card: rgba(17, 24, 39, 0.75);
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.16);
-  
-  --text-primary: #f9fafb;
-  --text-secondary: #9ca3af;
-  --text-muted: #6b7280;
-  
-  --accent-cyan: #06b6d4;
-  --accent-blue: #3b82f6;
-  --accent-purple: #8b5cf6;
-  --accent-emerald: #10b981;
-  --accent-rose: #f43f5e;
-  --accent-amber: #f59e0b;
+/* ────────────────────────────────────────────────────────
+   Catalyst — Retro Black & Gold Design System
+   Typography: Playfair Display + IBM Plex Mono
+   ──────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
-  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif;
+:root {
+  /* ── Backgrounds ── */
+  --bg-void:      #080808;
+  --bg-primary:   #0E0E0E;
+  --bg-secondary: #141414;
+  --bg-tertiary:  #1C1C1C;
+  --bg-card:      rgba(20, 20, 20, 0.88);
+  --bg-overlay:   rgba(8, 8, 8, 0.80);
+
+  /* ── Gold Palette ── */
+  --gold-primary: #F5C518;
+  --gold-bright:  #FFD84D;
+  --gold-muted:   #A8840E;
+  --gold-deep:    #7A5E08;
+  --gold-faint:   rgba(245, 197, 24, 0.10);
+  --gold-wash:    rgba(245, 197, 24, 0.06);
+  --gold-glow:    rgba(245, 197, 24, 0.32);
+  --gold-glow-md: rgba(245, 197, 24, 0.50);
+
+  /* ── Amber Secondary ── */
+  --amber-accent: #D4862A;
+  --amber-faint:  rgba(212, 134, 42, 0.14);
+
+  /* ── Status Colors ── */
+  --danger:        #C0392B;
+  --danger-bright: #E74C3C;
+  --danger-faint:  rgba(192, 57, 43, 0.18);
+  --danger-glow:   rgba(231, 76, 60, 0.40);
+
+  --success:       #27AE60;
+  --success-faint: rgba(39, 174, 96, 0.14);
+  --success-glow:  rgba(39, 174, 96, 0.30);
+
+  /* ── Text ── */
+  --text-primary:   #F0E6C8;
+  --text-secondary: #9C8E72;
+  --text-muted:     #5C5347;
+  --text-code:      #F5C518;
+
+  /* ── Borders ── */
+  --border-color:  rgba(245, 197, 24, 0.14);
+  --border-hover:  rgba(245, 197, 24, 0.38);
+  --border-active: rgba(245, 197, 24, 0.70);
+
+  /* ── Typography ── */
+  --font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --font-mono:    'IBM Plex Mono', 'Courier New', Courier, monospace;
 }
 
-* {
+/* ────────────────────────────────────────────────────────
+   Reset & Base
+   ──────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  font-family: var(--font-family);
+  font-family: var(--font-mono);
+  font-size: 14px;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
-  background-image: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
-                    radial-gradient(circle at 100% 50%, rgba(139, 92, 246, 0.05) 0%, transparent 40%);
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Faint gold shimmer at top */
+  background-image:
+    radial-gradient(ellipse 80% 40% at 50% -10%, rgba(245, 197, 24, 0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 25% at 85% 90%,  rgba(212, 134, 42, 0.05) 0%, transparent 60%);
   background-attachment: fixed;
 }
 
+/* ────────────────────────────────────────────────────────
+   Form Elements
+   ──────────────────────────────────────────────────────── */
 button {
-  font-family: inherit;
+  font-family: var(--font-mono);
   cursor: pointer;
   border: none;
   background: none;
 }
 
-input, select, textarea {
-  font-family: inherit;
+input,
+select,
+textarea {
+  font-family: var(--font-mono);
+}
+
+/* ────────────────────────────────────────────────────────
+   Scrollbar
+   ──────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--gold-muted);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-primary);
+}
+
+/* ────────────────────────────────────────────────────────
+   Selection
+   ──────────────────────────────────────────────────────── */
+::selection {
+  background: rgba(245, 197, 24, 0.28);
+  color: var(--text-primary);
 }
