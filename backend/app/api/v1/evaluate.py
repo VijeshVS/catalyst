@@ -1,11 +1,12 @@
-from typing import Dict, List
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Dict
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.deps import get_environment_or_404, get_project_or_404
 from app.core.db import get_db
-from app.models.models import Flag, FlagEnvState, TargetingRule, Project
+from app.models.models import Flag
 from app.schemas.schemas import (
     EvaluateRequest,
     EvaluateResponse,
@@ -16,15 +17,21 @@ from app.services.evaluator import evaluate_flag
 
 router = APIRouter(prefix="", tags=["Evaluation"])
 
+PROJECT_ID_QUERY = Query(..., description="ID of the project that scopes this request")
+
 
 @router.post("/evaluate", response_model=EvaluateResponse)
 async def evaluate_single_flag(
     req: EvaluateRequest,
+    project_id: str = PROJECT_ID_QUERY,
     db: AsyncSession = Depends(get_db),
 ):
+    project = await get_project_or_404(db, project_id)
+    await get_environment_or_404(db, project.id, req.env)
+
     stmt = (
         select(Flag)
-        .where(Flag.key == req.flag_key, Flag.archived == False)
+        .where(Flag.project_id == project.id, Flag.key == req.flag_key, Flag.archived == False)
         .options(selectinload(Flag.states), selectinload(Flag.rules))
     )
     res = await db.execute(stmt)
@@ -70,11 +77,15 @@ async def evaluate_single_flag(
 @router.post("/batch-evaluate", response_model=BatchEvaluateResponse)
 async def evaluate_batch_flags(
     req: BatchEvaluateRequest,
+    project_id: str = PROJECT_ID_QUERY,
     db: AsyncSession = Depends(get_db),
 ):
+    project = await get_project_or_404(db, project_id)
+    await get_environment_or_404(db, project.id, req.env)
+
     stmt = (
         select(Flag)
-        .where(Flag.archived == False)
+        .where(Flag.project_id == project.id, Flag.archived == False)
         .options(selectinload(Flag.states), selectinload(Flag.rules))
     )
     if req.flag_keys:
