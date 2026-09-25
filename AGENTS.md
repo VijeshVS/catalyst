@@ -139,8 +139,19 @@ Evaluation follows the implemented evaluator logic:
 * `PATCH /api/v1/flags/{key}/environments/{env}?project_id=` — Update environment state / rollout / kill switch
 * `POST /api/v1/evaluate?project_id=` — Evaluate a flag
 * `POST /api/v1/batch-evaluate?project_id=` — Batch flag evaluation
-* `GET /api/v1/bootstrap?project_id=&env=` — SDK configuration snapshot
+* `GET /api/v1/bootstrap?project_id=&env=` — SDK configuration snapshot (supports Bearer or X-SDK-Key)
 * `GET /api/v1/audit?project_id=` — Audit log (owned project scope, attributed user fields)
+
+### API Key Management (Phase 2)
+
+* **API Key Format**: `cp_<env>_<random32>` (e.g., `cp_prod_a1b2c3d4e5f6g7h8i9j0k1`)
+* **Security**: Keys are hashed with SHA-256 and stored in the database; raw keys are returned once upon creation
+* **Authentication**: SDK clients send the full key in the `X-SDK-Key` header
+* **Project-scoped Access**: SDK keys can only access resources within their project
+
+* `POST /api/v1/projects/{project_id}/keys` — Create API key (returns raw key once)
+* `GET /api/v1/projects/{project_id}/keys` — List all API keys for a project
+* `DELETE /api/v1/projects/{project_id}/keys/{key_id}` — Revoke an API key
 
 ### Bootstrap / Caching
 
@@ -148,6 +159,7 @@ Evaluation follows the implemented evaluator logic:
 * Supports **ETag-based conditional requests**; matching `If-None-Match` requests return `304 Not Modified` with the ETag echoed back.
 * The ETag derives from the project environment's `Environment.version`, which is incremented by every mutation that changes that snapshot (flag creation, rollout or kill-switch updates). Mutations in one project never invalidate another project's ETag.
 * Authenticated bootstrap responses use private cache headers.
+* **SDK Authentication**: The `/bootstrap` and `/evaluate` endpoints accept either a Bearer token (for users) or an `X-SDK-Key` header (for SDK clients). SDK keys are scoped to their project and can only access resources within that project.
 
 ## Frontend Design System
 
@@ -239,8 +251,11 @@ Current backend coverage includes:
 * Bootstrap ETag scoping and environment version invalidation (304 → 200 on mutation)
 * Registration/login/refresh/me, password validation/hashing, auth rate limiting
 * Cross-user organization/project/flag authorization and audit attribution
+* API Key management (creation, listing, revocation)
+* SDK authentication via X-SDK-Key header
+* Project-scoped SDK access to /bootstrap and /evaluate endpoints
 
-The suite reports **18 tests passing**.
+The suite reports **25 tests passing**.
 
 Frontend checks:
 
