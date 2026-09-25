@@ -233,3 +233,29 @@ class HealthCheckResponse(BaseModel):
     database: str
     redis: str
     version: str = "0.1.0"
+
+
+# ---------------------------------------------------------------------------
+# API Key Management
+# ---------------------------------------------------------------------------
+class ApiKeyCreate(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+    env: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[a-z][a-z0-9_-]{0,63}$")] = Field(
+        ..., description="Environment name (e.g., dev, staging, prod)"
+    )
+
+
+class ApiKeyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    env: str
+    name: str
+    prefix: str  # The full API key (we use the prefix as the secret)
+    revoked: bool
+    created_at: datetime
+
+
+class ApiKeyListResponse(BaseModel):
+    keys: List[ApiKeyResponse]

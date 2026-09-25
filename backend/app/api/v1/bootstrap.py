@@ -1,16 +1,16 @@
-from typing import Any, Dict
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from typing import Any, Dict, Union
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.v1.deps import (
-    get_current_user,
+    get_current_sdk_key_or_user,
     get_environment_or_404,
     get_project_or_404,
 )
 from app.core.db import get_db
-from app.models.models import Flag, User
+from app.models.models import ApiKey, Environment, Flag, User
 from app.schemas.schemas import BootstrapResponse
 
 router = APIRouter(prefix="/bootstrap", tags=["SDK Bootstrap"])
@@ -23,7 +23,7 @@ async def get_bootstrap_snapshot(
     project_id: str = Query(..., description="ID of the project that scopes this snapshot"),
     env: str = "prod",
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    auth_entity: Union[ApiKey, User] = Depends(get_current_sdk_key_or_user),
 ):
     """
     Returns full environment flag snapshot for SDK in-memory evaluation.
@@ -31,9 +31,46 @@ async def get_bootstrap_snapshot(
 
     The ETag derives from `Environment.version`, which is incremented by every
     mutation that changes this project environment's flag snapshot.
+
+    Authentication: Either Bearer token (user) or X-SDK-Key (SDK).
     """
-    project = await get_project_or_404(db, project_id, current_user.id)
-    environment = await get_environment_or_404(db, project.id, env, current_user.id)
+    from app.models.models import ApiKey
+
+    # For SDK keys, verify the key's project matches the requested project_id
+    if isinstance(auth_entity, ApiKey) and auth_entity.project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API key does not have access to this project",
+        )
+
+    if isinstance(auth_entity, User):
+        owner_id = auth_entity.id
+    else:
+        owner_id = auth_entity.organization_owner_id
+        if not owner_id:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="API key owner information not available",
+            )
+
+    project = await get_project_or_404(db, project_id, owner_id)
+
+    # For SDK keys, look up the environment directly within the project
+    # For users, use the existing get_environment_or_404 which checks ownership
+    if isinstance(auth_entity, ApiKey):
+        env_stmt = select(Environment).where(
+            Environment.project_id == project.id,
+            Environment.name == env,
+        )
+        env_result = await db.execute(env_stmt)
+        environment = env_result.scalar_one_or_none()
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{env}' not found in this project",
+            )
+    else:
+        environment = await get_environment_or_404(db, project.id, env, auth_entity.id)
     env_version = environment.version
 
     etag = f'W/"{project.id}:{env}:{env_version}"'

@@ -459,3 +459,49 @@ export async function fetchAuditLogs(projectId: string): Promise<AuditLog[]> {
     `${API_BASE}/audit?project_id=${encodeURIComponent(projectId)}`,
   );
 }
+
+// ---------------------------------------------------------------------------
+// API Keys
+// ---------------------------------------------------------------------------
+export interface ApiKey {
+  id: string;
+  project_id: string;
+  env: string;
+  name: string;
+  prefix: string;
+  revoked: boolean;
+  created_at: string;
+}
+
+export interface ApiKeyListResponse {
+  keys: ApiKey[];
+}
+
+export async function createApiKey(
+  projectId: string,
+  data: { name: string; env: string },
+): Promise<ApiKey> {
+  return jsonRequest<ApiKey>(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/keys`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export async function fetchApiKeys(projectId: string): Promise<ApiKeyListResponse> {
+  return jsonRequest<ApiKeyListResponse>(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/keys`,
+  );
+}
+
+export async function revokeApiKey(projectId: string, keyId: string): Promise<void> {
+  return jsonRequest<void>(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/keys/${encodeURIComponent(keyId)}`,
+    {
+      method: 'DELETE',
+    },
+  );
+}

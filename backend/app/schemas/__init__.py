@@ -1,4 +1,7 @@
 from app.schemas.schemas import (
+    ApiKeyCreate,
+    ApiKeyListResponse,
+    ApiKeyResponse,
     AuditLogResponse,
     AuthResponse,
     BatchEvaluateRequest,
@@ -27,6 +30,9 @@ from app.schemas.schemas import (
 )
 
 __all__ = [
+    "ApiKeyCreate",
+    "ApiKeyListResponse",
+    "ApiKeyResponse",
     "AuditLogResponse",
     "AuthResponse",
     "BatchEvaluateRequest",

@@ -83,10 +83,9 @@ export function ProjectHeader({ organization, project, projectData }: ProjectHea
         </Link>
         <Link
           to={withEnvironment(`${basePath}/keys`, query, projectData.activeEnv)}
-          className={`project-tab ${isKeys ? 'active' : ''} disabled-tab`}
-          onClick={(event) => event.preventDefault()}
+          className={`project-tab ${isKeys ? 'active' : ''} : ''`}
         >
-          API Keys <small>Phase 2</small>
+          API Keys
         </Link>
         <Link
           to={withEnvironment(`${basePath}/audit`, query, projectData.activeEnv)}

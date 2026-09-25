@@ -1,16 +1,16 @@
-from typing import Dict
-from fastapi import APIRouter, Depends, Query
+from typing import Dict, Union
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.v1.deps import (
-    get_current_user,
+    get_current_sdk_key_or_user,
     get_environment_or_404,
     get_project_or_404,
 )
 from app.core.db import get_db
-from app.models.models import Flag, User
+from app.models.models import ApiKey, Environment, Flag, User
 from app.schemas.schemas import (
     EvaluateRequest,
     EvaluateResponse,
@@ -29,10 +29,43 @@ async def evaluate_single_flag(
     req: EvaluateRequest,
     project_id: str = PROJECT_ID_QUERY,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    auth_entity: Union[ApiKey, User] = Depends(get_current_sdk_key_or_user),
 ):
-    project = await get_project_or_404(db, project_id, current_user.id)
-    await get_environment_or_404(db, project.id, req.env, current_user.id)
+    # For SDK keys, verify the key's project matches the requested project_id
+    if isinstance(auth_entity, ApiKey) and auth_entity.project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API key does not have access to this project",
+        )
+
+    if isinstance(auth_entity, User):
+        owner_id = auth_entity.id
+    else:
+        owner_id = auth_entity.organization_owner_id
+        if not owner_id:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="API key owner information not available",
+            )
+
+    project = await get_project_or_404(db, project_id, owner_id)
+
+    # For SDK keys, look up the environment directly within the project
+    # For users, use the existing get_environment_or_404 which checks ownership
+    if isinstance(auth_entity, ApiKey):
+        env_stmt = select(Environment).where(
+            Environment.project_id == project.id,
+            Environment.name == req.env,
+        )
+        env_result = await db.execute(env_stmt)
+        environment = env_result.scalar_one_or_none()
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{req.env}' not found in this project",
+            )
+    else:
+        environment = await get_environment_or_404(db, project.id, req.env, auth_entity.id)
 
     stmt = (
         select(Flag)
@@ -84,10 +117,43 @@ async def evaluate_batch_flags(
     req: BatchEvaluateRequest,
     project_id: str = PROJECT_ID_QUERY,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    auth_entity: Union[ApiKey, User] = Depends(get_current_sdk_key_or_user),
 ):
-    project = await get_project_or_404(db, project_id, current_user.id)
-    await get_environment_or_404(db, project.id, req.env, current_user.id)
+    # For SDK keys, verify the key's project matches the requested project_id
+    if isinstance(auth_entity, ApiKey) and auth_entity.project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API key does not have access to this project",
+        )
+
+    if isinstance(auth_entity, User):
+        owner_id = auth_entity.id
+    else:
+        owner_id = auth_entity.organization_owner_id
+        if not owner_id:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="API key owner information not available",
+            )
+
+    project = await get_project_or_404(db, project_id, owner_id)
+
+    # For SDK keys, look up the environment directly within the project
+    # For users, use the existing get_environment_or_404 which checks ownership
+    if isinstance(auth_entity, ApiKey):
+        env_stmt = select(Environment).where(
+            Environment.project_id == project.id,
+            Environment.name == req.env,
+        )
+        env_result = await db.execute(env_stmt)
+        environment = env_result.scalar_one_or_none()
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{req.env}' not found in this project",
+            )
+    else:
+        environment = await get_environment_or_404(db, project.id, req.env, auth_entity.id)
 
     stmt = (
         select(Flag)

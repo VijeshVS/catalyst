@@ -189,18 +189,50 @@ This roadmap outlines upcoming features organized in the recommended implementat
 
 > **Goal:** Secure the `/bootstrap` and `/evaluate` endpoints with environment-scoped SDK tokens and provide a dashboard for managing keys.
 
-- [ ] **Backend: API Key Service & Endpoints**
+- [x] **Backend: API Key Service & Endpoints**
   - Generate cryptographically secure keys with prefix format: `cp_<env>_<random32>`
   - Store SHA-256 hash in `api_keys` table; return raw secret key only once upon creation
   - `POST /api/v1/projects/{project_id}/keys` — Generate new API key
   - `GET /api/v1/projects/{project_id}/keys` — List active keys (prefix, env, created_at, status)
   - `DELETE /api/v1/projects/{project_id}/keys/{key_id}` — Revoke key
   - Add `X-SDK-Key` authentication middleware to `/api/v1/bootstrap` and `/api/v1/evaluate`
-- [ ] **Frontend: API Keys Dashboard**
+- [x] **Frontend: API Keys Dashboard**
   - New "API Keys" tab inside the Project Detail page (Phase 0-E)
   - Create Key modal with environment selector (`dev`, `staging`, `prod`) and descriptive name
   - "Copy to Clipboard" banner with one-time reveal of full secret key
   - Revocation confirmation dialog and status badges (`Active` / `Revoked`)
+
+### 2-A · Backend: API Key Service & Endpoints
+
+- [x] **API Key service** (`app/services/api_keys.py`):
+  - `generate_api_key_prefix(env)` — Creates `cp_<env>_<random32>` format key
+  - `hash_api_key(key)` — SHA-256 hashing for secure storage
+  - `create_api_key()` — Creates key, returns raw key (only once), stores hash
+  - `list_api_keys()` — Lists all keys for a project
+  - `revoke_api_key()` — Marks key as revoked
+- [x] **API Key schemas** (`app/schemas/schemas.py`):
+  - `ApiKeyCreate` — Request body for creating a key
+  - `ApiKeyResponse` — Response with key details
+  - `ApiKeyListResponse` — List of keys
+- [x] **API Key endpoints** (`app/api/v1/projects.py`):
+  - `POST /api/v1/projects/{project_id}/keys` — Create key (returns raw key once)
+  - `GET /api/v1/projects/{project_id}/keys` — List all keys
+  - `DELETE /api/v1/projects/{project_id}/keys/{key_id}` — Revoke key
+- [x] **Flexible auth middleware** (`app/api/v1/deps.py`):
+  - `get_current_sdk_key_or_user()` — Accepts either Bearer token or X-SDK-Key
+  - SDK keys can access `/bootstrap` and `/evaluate` endpoints
+  - Project scoping enforced for SDK keys
+- [x] **Authentication tests** (`tests/test_api_keys.py`):
+  - 7 comprehensive tests covering CRUD and SDK auth
+  - All 25 backend tests passing
+
+### 2-B · Frontend: API Keys Dashboard
+
+- [x] **API Keys tab** (`frontend/src/pages/ProjectDetail.tsx`):
+  - Tab navigation with `/keys` route
+  - Create Key modal with environment selector
+  - List view with status badges and copy-to-clipboard
+  - Revocation confirmation dialog
 
 ---
 
