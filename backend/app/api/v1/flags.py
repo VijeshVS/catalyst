@@ -1,19 +1,25 @@
 from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.v1.deps import get_environment_or_404, get_project_or_404
+from app.api.v1.deps import (
+    get_current_user,
+    get_environment_or_404,
+    get_project_or_404,
+)
 from app.core.db import get_db
-from app.models.models import Flag, FlagEnvState, AuditLog
+from app.models.models import AuditLog, Flag, FlagEnvState, User
 from app.schemas.schemas import (
     FlagCreate,
     FlagResponse,
-    FlagStateUpdate,
     FlagStateSchema,
+    FlagStateUpdate,
 )
 from app.services.environments import bump_environment_versions, seed_missing_flag_states
+
 
 router = APIRouter(prefix="/flags", tags=["Flags"])
 
@@ -21,13 +27,12 @@ PROJECT_ID_QUERY = Query(..., description="ID of the project that scopes this re
 
 
 async def _get_flag_in_project(db: AsyncSession, project_id: str, flag_key: str) -> Flag:
-    stmt = (
+    result = await db.execute(
         select(Flag)
         .where(Flag.project_id == project_id, Flag.key == flag_key)
         .options(selectinload(Flag.states), selectinload(Flag.rules))
     )
-    res = await db.execute(stmt)
-    flag = res.scalar_one_or_none()
+    flag = result.scalar_one_or_none()
     if not flag:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Flag not found")
     return flag
@@ -38,15 +43,15 @@ async def list_flags(
     project_id: str = PROJECT_ID_QUERY,
     archived: bool = False,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    project = await get_project_or_404(db, project_id)
-    stmt = (
+    project = await get_project_or_404(db, project_id, current_user.id)
+    result = await db.execute(
         select(Flag)
         .where(Flag.project_id == project.id, Flag.archived == archived)
         .options(selectinload(Flag.states), selectinload(Flag.rules))
         .order_by(Flag.created_at.desc())
     )
-    result = await db.execute(stmt)
     return result.scalars().all()
 
 
@@ -55,12 +60,13 @@ async def create_flag(
     data: FlagCreate,
     project_id: str = PROJECT_ID_QUERY,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    project = await get_project_or_404(db, project_id)
+    project = await get_project_or_404(db, project_id, current_user.id)
 
-    # Check unique key within the project
-    stmt = select(Flag).where(Flag.project_id == project.id, Flag.key == data.key)
-    existing = await db.execute(stmt)
+    existing = await db.execute(
+        select(Flag).where(Flag.project_id == project.id, Flag.key == data.key)
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -77,31 +83,31 @@ async def create_flag(
     db.add(flag)
     await db.flush()
 
-    # Create a state row for every environment of the project
+    # Create a state row for every environment of the project.
     await seed_missing_flag_states(db, project.id)
-    # The flag now appears in every environment snapshot -> bust SDK caches
+    # The flag now appears in every environment snapshot -> bust SDK caches.
     await bump_environment_versions(db, project.id)
 
-    audit = AuditLog(
-        org_id=project.org_id,
-        project_id=project.id,
-        flag_id=flag.id,
-        actor="developer",
-        action="flag.created",
-        after={"key": flag.key, "name": flag.name, "default_value": flag.default_value},
+    db.add(
+        AuditLog(
+            org_id=project.org_id,
+            project_id=project.id,
+            flag_id=flag.id,
+            actor=current_user.email,
+            user_id=current_user.id,
+            user_email=current_user.email,
+            action="flag.created",
+            after={"key": flag.key, "name": flag.name, "default_value": flag.default_value},
+        )
     )
-    db.add(audit)
-
     await db.commit()
 
-    # Re-fetch with relationships
-    stmt = (
+    result = await db.execute(
         select(Flag)
         .where(Flag.id == flag.id)
         .options(selectinload(Flag.states), selectinload(Flag.rules))
     )
-    res = await db.execute(stmt)
-    return res.scalar_one()
+    return result.scalar_one()
 
 
 @router.get("/{flag_key}", response_model=FlagResponse)
@@ -109,8 +115,9 @@ async def get_flag(
     flag_key: str,
     project_id: str = PROJECT_ID_QUERY,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    project = await get_project_or_404(db, project_id)
+    project = await get_project_or_404(db, project_id, current_user.id)
     return await _get_flag_in_project(db, project.id, flag_key)
 
 
@@ -121,21 +128,21 @@ async def update_flag_env_state(
     data: FlagStateUpdate,
     project_id: str = PROJECT_ID_QUERY,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    Update rollout percentage or trigger Emergency Kill Switch (enabled = False).
-    """
-    project = await get_project_or_404(db, project_id)
-    # The environment must belong to the project (strict scoping)
-    await get_environment_or_404(db, project.id, env)
+    """Update rollout percentage or trigger the Emergency Kill Switch."""
+    project = await get_project_or_404(db, project_id, current_user.id)
+    # The environment must belong to this project (strict project scoping).
+    await get_environment_or_404(db, project.id, env, current_user.id)
     flag = await _get_flag_in_project(db, project.id, flag_key)
 
-    state_stmt = select(FlagEnvState).where(
-        FlagEnvState.flag_id == flag.id,
-        FlagEnvState.env == env,
+    result = await db.execute(
+        select(FlagEnvState).where(
+            FlagEnvState.flag_id == flag.id,
+            FlagEnvState.env == env,
+        )
     )
-    res = await db.execute(state_stmt)
-    state = res.scalar_one_or_none()
+    state = result.scalar_one_or_none()
     if not state:
         state = FlagEnvState(flag_id=flag.id, env=env, enabled=True, percentage=0, version=1)
         db.add(state)
@@ -148,7 +155,7 @@ async def update_flag_env_state(
         state.percentage = data.percentage
 
     state.version += 1
-    # The environment snapshot changed -> bust the bootstrap ETag
+    # The environment snapshot changed -> bust the bootstrap ETag.
     await bump_environment_versions(db, project.id, env_names=[env])
 
     action_name = "flag.updated"
@@ -157,17 +164,20 @@ async def update_flag_env_state(
     elif data.percentage is not None and data.percentage != before_state["percentage"]:
         action_name = "rollout.percentage_updated"
 
-    audit = AuditLog(
-        org_id=project.org_id,
-        project_id=project.id,
-        flag_id=flag.id,
-        env=env,
-        actor="developer",
-        action=action_name,
-        before=before_state,
-        after={"enabled": state.enabled, "percentage": state.percentage},
+    db.add(
+        AuditLog(
+            org_id=project.org_id,
+            project_id=project.id,
+            flag_id=flag.id,
+            env=env,
+            actor=current_user.email,
+            user_id=current_user.id,
+            user_email=current_user.email,
+            action=action_name,
+            before=before_state,
+            after={"enabled": state.enabled, "percentage": state.percentage},
+        )
     )
-    db.add(audit)
 
     await db.commit()
     await db.refresh(state)

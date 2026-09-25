@@ -4,9 +4,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.v1.deps import get_environment_or_404, get_project_or_404
+from app.api.v1.deps import (
+    get_current_user,
+    get_environment_or_404,
+    get_project_or_404,
+)
 from app.core.db import get_db
-from app.models.models import Flag
+from app.models.models import Flag, User
 from app.schemas.schemas import BootstrapResponse
 
 router = APIRouter(prefix="/bootstrap", tags=["SDK Bootstrap"])
@@ -19,6 +23,7 @@ async def get_bootstrap_snapshot(
     project_id: str = Query(..., description="ID of the project that scopes this snapshot"),
     env: str = "prod",
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Returns full environment flag snapshot for SDK in-memory evaluation.
@@ -27,8 +32,8 @@ async def get_bootstrap_snapshot(
     The ETag derives from `Environment.version`, which is incremented by every
     mutation that changes this project environment's flag snapshot.
     """
-    project = await get_project_or_404(db, project_id)
-    environment = await get_environment_or_404(db, project.id, env)
+    project = await get_project_or_404(db, project_id, current_user.id)
+    environment = await get_environment_or_404(db, project.id, env, current_user.id)
     env_version = environment.version
 
     etag = f'W/"{project.id}:{env}:{env_version}"'
@@ -36,7 +41,7 @@ async def get_bootstrap_snapshot(
     if client_etag == etag:
         return Response(
             status_code=status.HTTP_304_NOT_MODIFIED,
-            headers={"ETag": etag, "Cache-Control": "public, max-age=0, must-revalidate"},
+            headers={"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"},
         )
 
     # Fetch active flags for this project only
@@ -74,7 +79,7 @@ async def get_bootstrap_snapshot(
         }
 
     response.headers["ETag"] = etag
-    response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+    response.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
 
     return BootstrapResponse(
         env=env,

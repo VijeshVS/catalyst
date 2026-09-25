@@ -1,22 +1,25 @@
 import uuid
 from datetime import datetime
-from typing import Optional, List, Any
+from typing import Any, List, Optional
+
 from sqlalchemy import (
-    String,
-    Boolean,
-    Integer,
-    ForeignKey,
-    DateTime,
-    Index,
-    UniqueConstraint,
     JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.core.db import Base
 
 
 def generate_uuid() -> str:
+    """Return a stable UUID representation for string-backed primary keys."""
     return str(uuid.uuid4())
 
 
@@ -25,43 +28,100 @@ class Organization(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # Nullable only to keep legacy Phase 1 organizations readable during the
+    # one-time schema transition. New organizations always set an owner.
+    owner_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    users: Mapped[List["User"]] = relationship("User", back_populates="organization", cascade="all, delete-orphan")
-    projects: Mapped[List["Project"]] = relationship("Project", back_populates="organization", cascade="all, delete-orphan")
+    owner: Mapped[Optional["User"]] = relationship("User", back_populates="organizations")
+    projects: Mapped[List["Project"]] = relationship(
+        "Project",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
 
 
 class User(Base):
+    """An authenticated Catalyst account.
+
+    A user can own more than one organization.  The original Phase 1 model
+    represented a user as belonging to one organization; authentication needs
+    the reverse ownership relation so the same account can manage several
+    organizations without duplicating the User table.
+    """
+
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    # Keep the Phase 1 physical column name for a painless existing-database
+    # transition while exposing the clearer roadmap-facing attribute.
+    hashed_password: Mapped[str] = mapped_column("password_hash", String(255), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    organization: Mapped["Organization"] = relationship("Organization", back_populates="users")
+    organizations: Mapped[List["Organization"]] = relationship(
+        "Organization",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def password_hash(self) -> str:
+        """Compatibility alias for the Phase 1 physical column name."""
+        return self.hashed_password
+
+    @password_hash.setter
+    def password_hash(self, value: str) -> None:
+        self.hashed_password = value
 
 
 class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     organization: Mapped["Organization"] = relationship("Organization", back_populates="projects")
-    environments: Mapped[List["Environment"]] = relationship("Environment", back_populates="project", cascade="all, delete-orphan")
-    flags: Mapped[List["Flag"]] = relationship("Flag", back_populates="project", cascade="all, delete-orphan")
-    api_keys: Mapped[List["ApiKey"]] = relationship("ApiKey", back_populates="project", cascade="all, delete-orphan")
+    environments: Mapped[List["Environment"]] = relationship(
+        "Environment",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    flags: Mapped[List["Flag"]] = relationship(
+        "Flag",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    api_keys: Mapped[List["ApiKey"]] = relationship(
+        "ApiKey",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
 
 
 class Environment(Base):
     __tablename__ = "environments"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     name: Mapped[str] = mapped_column(String(64), nullable=False)  # dev, staging, prod
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
@@ -76,7 +136,11 @@ class Flag(Base):
     __tablename__ = "flags"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     key: Mapped[str] = mapped_column(String(128), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -85,8 +149,16 @@ class Flag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     project: Mapped["Project"] = relationship("Project", back_populates="flags")
-    states: Mapped[List["FlagEnvState"]] = relationship("FlagEnvState", back_populates="flag", cascade="all, delete-orphan")
-    rules: Mapped[List["TargetingRule"]] = relationship("TargetingRule", back_populates="flag", cascade="all, delete-orphan")
+    states: Mapped[List["FlagEnvState"]] = relationship(
+        "FlagEnvState",
+        back_populates="flag",
+        cascade="all, delete-orphan",
+    )
+    rules: Mapped[List["TargetingRule"]] = relationship(
+        "TargetingRule",
+        back_populates="flag",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("project_id", "key", name="uq_project_flag_key"),
@@ -95,16 +167,23 @@ class Flag(Base):
 
 
 class FlagEnvState(Base):
+    """Per-environment flag state.
+
+    ``enabled`` is the Emergency Kill Switch, and ``percentage`` is the
+    deterministic canary rollout.  The state version is retained for
+    compatibility with existing clients; the environment version drives the
+    bootstrap ETag.
     """
-    Per-environment flag state.
-    - enabled: Emergency Kill Switch (false = immediately serve default_value)
-    - percentage: Canary / Gradual rollout (0-100)
-    - version: incremental counter for cache invalidation
-    """
+
     __tablename__ = "flag_env_states"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    flag_id: Mapped[str] = mapped_column(String(36), ForeignKey("flags.id", ondelete="CASCADE"), nullable=False, index=True)
+    flag_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("flags.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     env: Mapped[str] = mapped_column(String(64), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     percentage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -118,16 +197,20 @@ class FlagEnvState(Base):
 
 
 class TargetingRule(Base):
-    """
-    Targeting rules for targeted beta testing and user segmentation.
-    """
+    """Targeting rules for targeted beta testing and user segmentation."""
+
     __tablename__ = "targeting_rules"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    flag_id: Mapped[str] = mapped_column(String(36), ForeignKey("flags.id", ondelete="CASCADE"), nullable=False, index=True)
+    flag_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("flags.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     env: Mapped[str] = mapped_column(String(64), nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    conditions_json: Mapped[Any] = mapped_column(JSON, default=list, nullable=False)  # list of {attr, op, value}
+    conditions_json: Mapped[Any] = mapped_column(JSON, default=list, nullable=False)
     serve: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     flag: Mapped["Flag"] = relationship("Flag", back_populates="rules")
@@ -141,10 +224,14 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     env: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    prefix: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # cp_dev_xxxx
+    prefix: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     hash: Mapped[str] = mapped_column(String(128), nullable=False)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -164,8 +251,17 @@ class AuditLog(Base):
     project_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     flag_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     env: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # ``actor`` is retained for backwards compatibility with Phase 1 clients;
+    # authenticated writes now populate both actor and the normalized email.
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
-    action: Mapped[str] = mapped_column(String(128), nullable=False)  # flag.created, kill_switch.toggled, rollout.updated, etc.
+    user_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    user_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
     before: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     after: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
