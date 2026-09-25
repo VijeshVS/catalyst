@@ -265,3 +265,11 @@ npm run test       # routing-critical and auth-aware API Vitest tests
 npm run lint
 npm run build
 ```
+
+## Continuous Integration (CI)
+
+Automated on pull requests targeting `main` and pushes to `main` via `.github/workflows/ci.yml`:
+
+* **`backend-tests`**: Runs on Python 3.12 with `uv` (`uv run pytest` - all 25 SQLite-backed unit and integration tests).
+* **`frontend-checks`**: Runs on Node 22 (`npm ci`, `npm run test`, `npm run lint`, `npm run build`).
+
