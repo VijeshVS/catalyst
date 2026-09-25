@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import get_project_or_404
+from app.api.v1.deps import get_current_user, get_project_or_404
 from app.core.db import get_db
-from app.models.models import AuditLog, Environment
+from app.models.models import AuditLog, Environment, User
 from app.schemas.schemas import EnvironmentCreate, EnvironmentResponse
 from app.services.environments import seed_missing_flag_states, sort_environments
+
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -17,12 +18,13 @@ router = APIRouter(prefix="/projects", tags=["Projects"])
 async def list_environments(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    project = await get_project_or_404(db, project_id)
-    res = await db.execute(
+    project = await get_project_or_404(db, project_id, current_user.id)
+    result = await db.execute(
         select(Environment).where(Environment.project_id == project.id)
     )
-    return sort_environments(res.scalars().all())
+    return sort_environments(result.scalars().all())
 
 
 @router.post(
@@ -34,8 +36,9 @@ async def create_environment(
     project_id: str,
     data: EnvironmentCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    project = await get_project_or_404(db, project_id)
+    project = await get_project_or_404(db, project_id, current_user.id)
 
     existing = await db.execute(
         select(Environment).where(
@@ -61,7 +64,9 @@ async def create_environment(
             org_id=project.org_id,
             project_id=project.id,
             env=environment.name,
-            actor="developer",
+            actor=current_user.email,
+            user_id=current_user.id,
+            user_email=current_user.email,
             action="environment.created",
             after={"name": environment.name},
         )

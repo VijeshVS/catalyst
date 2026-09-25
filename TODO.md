@@ -10,113 +10,101 @@ This roadmap outlines upcoming features organized in the recommended implementat
 > a public landing page → organization onboarding → a GitHub-style project list → a project
 > detail view that separates flags, environments, and settings into distinct sub-pages.
 >
-> **Status: 🔲 Not started.**
+> **Status: ✅ Complete.** The React Router v6 route tree, public landing page, full-page
+> onboarding forms, persistent workspace sidebar, project navigation, environment tabs, and
+> extracted page/component/state architecture are implemented. The existing flag controls,
+> evaluation playground, and environment management remain available on the new project pages.
 
 ### 0-A · Public Landing Page (`/`)
 
-The app currently has no landing page — first paint drops straight into the dashboard. A dedicated, visually rich marketing page is needed:
-
-- [ ] **Hero section** — Headline (`"Ship features with confidence"`), sub-headline, and two CTAs: _"Get Started"_ (→ `/app`) and _"View Docs"_.
-- [ ] **Feature highlights** — Four cards: Feature Flags, Emergency Kill Switch, Percentage Rollout, SDK-Ready Bootstrap.
-- [ ] **How It Works** — Numbered steps: Create org → Create project → Add flags → Evaluate.
-- [ ] **Tech stack badge strip** — FastAPI · PostgreSQL · Redis · React.
-- [ ] **Footer** — Branding, links.
-- [ ] Must use the existing Retro Black & Gold design system from `frontend/src/index.css`.
+- [x] **Hero section** — Headline (`"Ship features with confidence"`), sub-headline, and two CTAs: _"Get Started"_ (→ `/app`) and _"View Docs"_.
+- [x] **Feature highlights** — Four cards: Feature Flags, Emergency Kill Switch, Percentage Rollout, SDK-Ready Bootstrap.
+- [x] **How It Works** — Numbered steps: Create org → Create project → Add flags → Evaluate.
+- [x] **Tech stack badge strip** — FastAPI · PostgreSQL · Redis · React.
+- [x] **Footer** — Branding, links.
+- [x] Must use the existing Retro Black & Gold design system from `frontend/src/index.css`.
 
 ### 0-B · Routing Setup
 
-> The app has zero client-side routing today. React Router must be introduced.
+> React Router v6 is installed and configured in `frontend/src/App.tsx` / `main.tsx`.
 
-- [ ] Install and configure **React Router v6** (`react-router-dom`).
-- [ ] Define top-level routes:
+- [x] Install and configure **React Router v6** (`react-router-dom`).
+- [x] Define top-level routes:
 
   | Path | Component |
   |------|-----------|
   | `/` | `LandingPage` |
-  | `/app` | Redirect → first org, or org-creation screen |
+  | `/app` | Redirect → first/last org, or org-creation screen |
   | `/app/orgs/:orgId` | `OrgDashboard` (project list) |
   | `/app/orgs/:orgId/projects/:projectId` | `ProjectDetail` (flags tab by default) |
   | `/app/orgs/:orgId/projects/:projectId/environments` | `EnvironmentsPage` |
-  | `/app/orgs/:orgId/projects/:projectId/audit` | `AuditPage` (Phase 3+) |
-  | `/app/orgs/:orgId/projects/:projectId/settings` | `SettingsPage` (Phase 3+) |
+  | `/app/orgs/:orgId/projects/:projectId/audit` | `AuditPage` (Phase 3+ placeholder) |
+  | `/app/orgs/:orgId/projects/:projectId/settings` | `SettingsPage` (Phase 3+ placeholder) |
 
 ### 0-C · Organization Onboarding Flow
 
-> The current no-org empty state is a plain centered block. Replace it with a proper multi-step onboarding.
-
-- [ ] **Welcome screen** (`/app` — no orgs yet): Illustrated empty state, headline _"Create your first Organization"_, and a prominent CTA.
-- [ ] **Create Organization** — **Full-page centered form, not a modal**:
+- [x] **Welcome screen** (`/app` — no orgs yet): Illustrated empty state, headline _"Create your first Organization"_, and a prominent CTA.
+- [x] **Create Organization** — **Full-page centered form, not a modal**:
   - Organization name field with live slug preview (e.g. `acme-inc`).
   - Optional short description.
   - Submit navigates to the new org's project list (`/app/orgs/:orgId`).
-- [ ] Visiting `/app` when orgs exist should redirect to the last-visited org (persisted in `localStorage`), or to the first org.
-- [ ] **Org switcher** in the sidebar: dropdown listing all orgs + _"+ New Organization"_ at the bottom. Remove the "+ Org" button from the top header entirely.
+- [x] Visiting `/app` when orgs exist redirects to the last-valid organization persisted in `localStorage`, or to the first organization.
+- [x] **Org switcher** in the sidebar: dropdown listing all orgs + _"+ New Organization"_ at the bottom. The "+ Org" button was removed from the global header.
 
 ### 0-D · Project List Page (`/app/orgs/:orgId`) — GitHub-style
 
-> Model on GitHub's repository list. Projects are first-class; organizations own them.
-
-- [ ] **Persistent sidebar** (visible across all `/app/**` routes):
+- [x] **Persistent sidebar** (visible across all `/app/**` routes):
   - Org name + avatar initial at the top.
   - Nav links: _Projects_ (active), _Settings_ (future).
   - Org switcher dropdown at the bottom.
-- [ ] **Projects grid/list** — each project card shows:
-  - Project name (prominent).
-  - Auto-created environment badges: `dev` · `staging` · `prod` (+ custom envs, truncated).
-  - Total flag count.
-  - Last updated timestamp.
-  - Clicking the card navigates to `/app/orgs/:orgId/projects/:projectId`.
-- [ ] **"+ New Project" flow** — **Full-page form, not a modal**:
+- [x] **Projects grid/list** — each project card shows project name, environment badges, total flag count, and last-updated timestamp; cards navigate to project detail.
+- [x] **"+ New Project" flow** — **Full-page form, not a modal**:
   - Project name input.
   - Read-only preview of the three default environments that will be auto-created.
-  - On submit, redirect into the new project's flags page.
-- [ ] Empty state when no projects exist — illustrated, with _"Create your first project"_ CTA.
+  - On submit, redirects into the new project's flags page.
+- [x] Empty state when no projects exist — illustrated, with _"Create your first project"_ CTA.
 
 ### 0-E · Project Detail Page (`/app/orgs/:orgId/projects/:projectId`)
 
-> The current `App.tsx` mixes flags, environments, and workspace state into one 814-line component. Separate them.
-
-- [ ] **Project header** — Breadcrumb (`OrgName / ProjectName`), environment tab strip (replaces the global header env buttons: `DEV` · `STAGING` · `PROD` · custom).
-- [ ] **Tab navigation** inside a project:
+- [x] **Project header** — Breadcrumb (`OrgName / ProjectName`) and project-level environment tab strip, including custom environments.
+- [x] **Tab navigation** inside a project:
 
   | Tab | URL suffix | Content |
   |-----|-----------|---------|
   | Feature Flags | (default, no suffix) | Flag list + create flow |
   | Environments | `/environments` | Env list + custom env creation |
-  | API Keys | `/keys` | Phase 2 |
-  | Audit Log | `/audit` | Phase 3+ |
-  | Settings | `/settings` | Phase 3+ |
+  | API Keys | `/keys` | Phase 2 placeholder |
+  | Audit Log | `/audit` | Phase 3+ placeholder |
+  | Settings | `/settings` | Phase 3+ placeholder |
 
-- [ ] **Feature Flags sub-page**:
-  - Flag cards with kill switch toggle, rollout slider, and evaluation playground — same as today.
-  - _"+ Create Flag"_ opens a **slide-over panel** or dedicated sub-page (not a fullscreen modal overlay).
-  - Active environment comes from the project header tab strip, not from the global header.
-- [ ] **Environments sub-page** (moved out of the current `view === 'environments'` block):
-  - Lists all environments; `dev/staging/prod` have an _"auto-created"_ badge, custom ones have a _"custom"_ badge.
+- [x] **Feature Flags sub-page**:
+  - Flag cards with kill switch toggle, rollout slider, and evaluation playground.
+  - _"+ Create Flag"_ opens a slide-over panel, not a fullscreen modal overlay.
+  - Active environment comes from the project header/query state, not the global header.
+- [x] **Environments sub-page**:
+  - Lists all environments; standard environments have an _"auto-created"_ badge and custom ones a _"custom"_ badge.
   - Shows bootstrap cache version (`v{n}`) per environment.
-  - Inline _"+ New Environment"_ form at the top (lowercase identifier validation, e.g. `qa`).
-  - _"View flags →"_ button switches to the flags tab with that environment active.
-- [ ] **Remove all workspace dropdowns from `<header>`**. The global header should contain only: brand logo + health indicator. All navigation lives in the sidebar and project header.
+  - Inline _"+ New Environment"_ form with lowercase identifier validation.
+  - _"View flags →"_ switches to the flags tab with that environment active.
+- [x] **Remove all workspace dropdowns from `<header>`**. The global header contains only brand, health indicator, and user menu.
 
 ### 0-F · State Management & Component Refactor
 
-> Required before new pages can be built cleanly.
-
-- [ ] Introduce **`WorkspaceContext`** (`React.createContext`) — owns orgs list, selected org, projects.
-- [ ] Introduce **`useProject(projectId)`** custom hook — owns flags, environments, flag actions.
-- [ ] Extract pages into `frontend/src/pages/`:
+- [x] Introduce **`WorkspaceContext`** — owns the authenticated organization list, selected organization, project summaries, and workspace mutations.
+- [x] Introduce **`useProject(projectId)`** — owns flags, environments, active environment, playground state, and flag/environment actions.
+- [x] Extract pages into `frontend/src/pages/`:
   - `LandingPage.tsx`
   - `OrgDashboard.tsx` (project list)
   - `ProjectDetail.tsx` (tabs + flag list)
   - `EnvironmentsPage.tsx`
-- [ ] Extract reusable UI components into `frontend/src/components/`:
+- [x] Extract reusable UI components into `frontend/src/components/`:
   - `Sidebar.tsx`
   - `FlagCard.tsx`
   - `KillSwitchButton.tsx`
   - `RolloutSlider.tsx`
   - `EvalPlayground.tsx`
   - `EnvBadge.tsx`
-- [ ] Ensure `npm run lint` and `npm run build` stay green after every step.
+- [x] `npm run lint`, `npm run build`, and routing tests pass.
 
 ---
 
@@ -126,44 +114,47 @@ The app currently has no landing page — first paint drops straight into the da
 > they can create organizations, manage projects, or touch any flags. Auth is a prerequisite for
 > meaningful audit logs, org ownership, and the API key system in Phase 2.
 >
-> **Status: 🔲 Not started.**
+> **Status: ✅ Complete.** Registration, JSON login, typed access/refresh JWTs, protected API
+> ownership checks, audit attribution, frontend token refresh, auth pages, and rate-limited auth
+> endpoints are implemented. JWTs use `python-jose[cryptography]`; password hashing uses Passlib
+> bcrypt.
 
 ### 0.5-A · Backend: User Model & Auth Endpoints
 
-- [ ] **`User` model** (new SQLAlchemy model in `backend/app/models/`):
-  - `id` (UUID), `email` (unique, indexed), `hashed_password`, `full_name`, `created_at`
-- [ ] **Password hashing** — use `passlib[bcrypt]` (add to `pyproject.toml`).
-- [ ] **JWT tokens** — use `python-jose[cryptography]`; short-lived access token (15 min) + long-lived refresh token (7 days).
-- [ ] **Auth endpoints** under `/api/v1/auth/`:
+- [x] **User model** — the existing `User` model was adapted in place (no duplicate model) with UUID/string UUID primary key, unique indexed email, `hashed_password` Python attribute mapped to the legacy-compatible `password_hash` column, full name, and created timestamp.
+- [x] **Password hashing** — Passlib bcrypt; passwords are deterministically pre-hashed only when they exceed bcrypt's 72-byte input limit.
+- [x] **JWT tokens** — signed typed access tokens (15 min) and refresh tokens (7 days) using `python-jose[cryptography]` and environment-configured secret/expiry.
+- [x] **Auth endpoints** under `/api/v1/auth/`:
   | Method & Path | Description |
   |---------------|-------------|
-  | `POST /api/v1/auth/register` | Create account (`email`, `password`, `full_name`) |
+  | `POST /api/v1/auth/register` | Create account (`email`, `password`, `full_name`) and return a token pair |
   | `POST /api/v1/auth/login` | Return `access_token` + `refresh_token` (JSON body, not form) |
-  | `POST /api/v1/auth/refresh` | Exchange valid refresh token for a new access token |
-  | `GET /api/v1/auth/me` | Return the current authenticated user's profile |
-- [ ] **Auth middleware / dependency** — FastAPI `Depends(get_current_user)` injected into every protected route; unauthenticated requests get `401`.
-- [ ] **Exempt routes** — `/healthz`, `/api/v1/auth/register`, `/api/v1/auth/login`, `/api/v1/auth/refresh` remain public.
-- [ ] **Org ownership** — add `owner_id` FK on `Organization` pointing to `User.id`; users can only read/write their own orgs and their downstream projects/flags.
-- [ ] **Audit log enrichment** — add `user_id` (nullable FK → `User`) and `user_email` (denormalized string) to `AuditLog` so every change is attributable.
-- [ ] Add auth-related tests to the pytest suite (register, login, protected route rejection, token refresh).
+  | `POST /api/v1/auth/refresh` | Exchange valid refresh token for a new token pair |
+  | `GET /api/v1/auth/me` | Return the current authenticated user's sanitized profile |
+- [x] **Auth dependency** — `get_current_user` is injected into every protected route; unauthenticated requests get `401`.
+- [x] **Exempt routes** — `/`, `/healthz`, `/api/v1/healthz`, `/api/v1/auth/register`, `/api/v1/auth/login`, and `/api/v1/auth/refresh` remain public.
+- [x] **Organization ownership** — `Organization.owner_id` points to `User.id`; organization/project/environment lookups filter by the authenticated owner, returning `404` for inaccessible resources.
+- [x] **Audit log enrichment** — nullable `user_id` FK and denormalized `user_email`, while retaining the Phase 1 `actor` field.
+- [x] Auth tests cover registration, validation, login, refresh, `/me`, bearer protection, cross-user isolation, rate limiting, and audit attribution.
+- [x] A documented one-time SQL transition for existing Phase 1 PostgreSQL databases is in `backend/migrations/001_auth_ownership.sql`; fresh/test databases continue to use the existing startup `create_all()` bootstrap.
 
 ### 0.5-B · Frontend: Auth Pages & Token Management
 
-- [ ] **`/login` page** — Email + password form, _"Don't have an account? Register"_ link, submit → stores tokens → redirects to `/app`.
-- [ ] **`/register` page** — Full name + email + password + confirm password, submit → auto-login → redirects to `/app`.
-- [ ] **Token storage** — store `access_token` in memory (React context) and `refresh_token` in an `httpOnly`-style approach or `localStorage` (document the tradeoff); auto-refresh on 401 responses.
-- [ ] **`AuthContext`** (`React.createContext`) — exposes `user`, `login()`, `logout()`, `register()`; wraps the entire app.
-- [ ] **Protected route wrapper** — `<ProtectedRoute>` component that redirects unauthenticated users to `/login`; wraps all `/app/**` routes.
-- [ ] **Auth-aware API client** (`frontend/src/api.ts`) — attach `Authorization: Bearer <token>` header to every request; intercept `401` to trigger silent token refresh before retrying once.
-- [ ] **User menu in header** — small avatar/initials + dropdown with _"Signed in as {email}"_ and _"Log out"_ action (replaces the future "user/org avatar" placeholder).
-- [ ] **`/login` and `/register` use the landing page's Black & Gold design** — they should feel like premium auth screens, not plain browser forms.
+- [x] **`/login` page** — Email + password form, _"Don't have an account? Register"_ link, submit → stores tokens → redirects to `/app`.
+- [x] **`/register` page** — Full name + email + password + confirm password, submit → auto-login → redirects to `/app`.
+- [x] **Token storage** — access token remains in memory; refresh token is persisted in `localStorage` so a hard reload can restore the session. The localStorage/XSS tradeoff is documented; an httpOnly-cookie/CSRF design is deferred.
+- [x] **`AuthContext`** — exposes `user`, `login()`, `logout()`, and `register()`; it restores the session and handles expiry.
+- [x] **Protected route wrapper** — `<ProtectedRoute>` redirects unauthenticated users to `/login` and preserves the attempted destination.
+- [x] **Auth-aware API client** (`frontend/src/api.ts`) — attaches `Authorization: Bearer <token>`, shares a single refresh promise, retries a protected request once after refresh, and clears expired sessions.
+- [x] **User menu in header** — initials/avatar, signed-in email, and logout action.
+- [x] **`/login` and `/register` use the landing page's Black & Gold design**.
 
 ### 0.5-C · Security Hardening (Minimum Bar)
 
-- [ ] Rate-limit `/api/v1/auth/login` and `/api/v1/auth/register` (e.g. `slowapi` — 5 req/min per IP).
-- [ ] `JWT_SECRET` and token expiry durations read from env vars (`.env.example` updated).
-- [ ] Passwords must be ≥ 8 characters (validated in Pydantic schema).
-- [ ] Never return `hashed_password` in any response schema.
+- [x] Rate-limit `/api/v1/auth/login` and `/api/v1/auth/register` requests per client IP (five per configured window, with `429`/`Retry-After`); the limiter is process-local for the current single-process deployment.
+- [x] `JWT_SECRET`, algorithm, and token expiry durations are read from environment variables; `.env.example` is updated.
+- [x] Passwords must be ≥ 8 characters (validated in Pydantic schemas).
+- [x] No response schema exposes `hashed_password` or `password_hash`.
 
 ---
 
@@ -172,16 +163,14 @@ The app currently has no landing page — first paint drops straight into the da
 > **Goal:** Transition from default auto-provisioned entities to explicit management of Organizations, Projects, and scoped Environments.
 >
 > **Status: ✅ Complete.** All items below are implemented. Auto-provisioning of the default
-> organization/project was removed; every flag/evaluate/bootstrap/audit call now requires an
+> organization/project was removed; every flag/evaluate/bootstrap/audit call requires an
 > explicit `project_id` (422 when missing, 404 when unknown) and validates that the environment
-> belongs to that project. The bootstrap ETag bug was fixed: `Environment.version` is now bumped
-> by every snapshot-affecting mutation (flag creation, state/rollout/kill-switch updates), so
-> ETags invalidate correctly and stay isolated per project. Covered by 12 passing backend tests;
-> frontend `npm run lint` / `npm run build` pass.
+> belongs to that project. The bootstrap ETag is project-scoped and invalidated by every
+> snapshot-affecting mutation. Phase 0.5 ownership checks now apply on top of these rules.
 
 - [x] **Backend: Organization Management**
   - `POST /api/v1/organizations` — Create organization
-  - `GET /api/v1/organizations` — List organizations
+  - `GET /api/v1/organizations` — List the authenticated user's organizations
   - `GET /api/v1/organizations/{id}` — Get organization details
 - [x] **Backend: Projects & Environments**
   - `POST /api/v1/organizations/{org_id}/projects` — Create project
@@ -189,9 +178,9 @@ The app currently has no landing page — first paint drops straight into the da
   - `POST /api/v1/projects/{project_id}/environments` — Create custom environment
   - `GET /api/v1/projects/{project_id}/environments` — List project environments
   - Scope all flag queries and mutations strictly by `project_id`
-- [x] **Frontend: Workspace Navigation** _(partially superseded by Phase 0)_
-  - Organization & Project dropdown switcher in header navigation
-  - "New Project" creation modal with auto-created environment badges
+- [x] **Frontend: Workspace Navigation** _(superseded by the Phase 0 route architecture)_
+  - Persistent organization/project navigation
+  - Full-page project and organization creation flows
   - Project-level environment management view
 
 ---
@@ -217,7 +206,7 @@ The app currently has no landing page — first paint drops straight into the da
 
 ## Phase 3: Rule-Based Targeting & Visual Rule Builder
 
-> **Goal:** Enable targeted beta rollouts based on user attributes (e.g., email domain, user role, country, app version) with an intuitive dashboard builder.
+> **Goal:** Enable targeted beta rollouts based on user attributes (e.g. email domain, user role, country, app version) with an intuitive dashboard builder.
 
 - [ ] **Backend: Rule CRUD Endpoints**
   - `POST /api/v1/flags/{key}/environments/{env}/rules` — Create targeting rule
@@ -263,5 +252,5 @@ The app currently has no landing page — first paint drops straight into the da
 - [x] Deterministic Murmur3 sticky percentage rollout engine
 - [x] Emergency Kill Switch with instant short-circuit override
 - [x] Base REST APIs: `/healthz`, `/flags`, `/evaluate`, `/batch-evaluate`, `/bootstrap` (ETag/304), `/audit`
-- [x] Frontend React + Vite + TypeScript dashboard with live health status, environment switcher, kill switches, and evaluation playground
-- [x] Automated test suite (12 passing unit & integration tests)
+- [x] React + Vite + TypeScript dashboard with live health status, environment switcher, kill switches, and evaluation playground
+- [x] Automated backend test suite (18 passing unit & integration tests, including authentication and authorization)

@@ -4,9 +4,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.v1.deps import get_environment_or_404, get_project_or_404
+from app.api.v1.deps import (
+    get_current_user,
+    get_environment_or_404,
+    get_project_or_404,
+)
 from app.core.db import get_db
-from app.models.models import Flag
+from app.models.models import Flag, User
 from app.schemas.schemas import (
     EvaluateRequest,
     EvaluateResponse,
@@ -25,9 +29,10 @@ async def evaluate_single_flag(
     req: EvaluateRequest,
     project_id: str = PROJECT_ID_QUERY,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    project = await get_project_or_404(db, project_id)
-    await get_environment_or_404(db, project.id, req.env)
+    project = await get_project_or_404(db, project_id, current_user.id)
+    await get_environment_or_404(db, project.id, req.env, current_user.id)
 
     stmt = (
         select(Flag)
@@ -79,9 +84,10 @@ async def evaluate_batch_flags(
     req: BatchEvaluateRequest,
     project_id: str = PROJECT_ID_QUERY,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    project = await get_project_or_404(db, project_id)
-    await get_environment_or_404(db, project.id, req.env)
+    project = await get_project_or_404(db, project_id, current_user.id)
+    await get_environment_or_404(db, project.id, req.env, current_user.id)
 
     stmt = (
         select(Flag)

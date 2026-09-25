@@ -1,11 +1,12 @@
 """
 Test bootstrap.
 
-The environment is configured BEFORE any `app.*` module is imported so the
-whole suite runs against a temporary SQLite database. This keeps tests
+The environment is configured BEFORE any ``app.*`` module is imported so the
+whole suite runs against a temporary SQLite database.  This keeps tests
 self-contained: no PostgreSQL or Redis instance is required and the local
 development database is never touched.
 """
+
 import atexit
 import os
 import shutil
@@ -23,6 +24,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.core.db import Base, engine
+from app.core.security import clear_all_auth_failures
 from app.main import app
 
 
@@ -38,6 +40,29 @@ async def fresh_db():
 
 
 @pytest_asyncio.fixture
-async def client(fresh_db):
+async def anon_client(fresh_db):
+    """An unauthenticated client for auth and route-protection tests."""
+    await clear_all_auth_failures()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
+
+
+@pytest_asyncio.fixture
+async def client(anon_client):
+    """Default client authenticated as a fresh account.
+
+    Phase 1 tests intentionally exercise the protected API, so keeping the
+    authentication setup in the fixture lets those tests remain focused on
+    hierarchy and project isolation.
+    """
+    response = await anon_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "phase1@example.com",
+            "password": "phase1-password",
+            "full_name": "Phase 1 Tester",
+        },
+    )
+    assert response.status_code == 201, response.text
+    anon_client.headers["Authorization"] = f"Bearer {response.json()['access_token']}"
+    return anon_client
