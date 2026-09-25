@@ -137,7 +137,8 @@
 .landing-footer,
 .landing-section,
 .stack-strip,
-.landing-cta { width: min(1180px, calc(100% - 48px)); margin-inline: auto; }
+.landing-cta,
+.landing-hero { width: min(1180px, calc(100% - 48px)); margin-inline: auto; }
 .landing-nav { height: 84px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); }
 .landing-brand,
 .footer-brand,
