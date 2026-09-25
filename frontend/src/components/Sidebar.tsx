@@ -9,7 +9,7 @@ function initial(name: string): string {
 
 export function Sidebar() {
   const { organizations, selectedOrg, selectedOrgId, selectOrganization } = useWorkspace();
-  const { orgId, projectId } = useParams();
+  const { orgId } = useParams();
   const navigate = useNavigate();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const routeOrg = organizations.find((organization) => organization.id === orgId) ?? selectedOrg;
@@ -49,7 +49,7 @@ export function Sidebar() {
             <span className="sidebar-link-icon" aria-hidden="true">▦</span>
             <span>Projects</span>
           </NavLink>
-          <NavLink
+          {/* <NavLink
             to={activeOrgId && projectId ? `/app/orgs/${activeOrgId}/projects/${projectId}/settings` : '#'}
             className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''} ${!projectId ? 'disabled' : ''}`}
             onClick={(event) => {
@@ -60,7 +60,7 @@ export function Sidebar() {
             <span className="sidebar-link-icon" aria-hidden="true">⚙</span>
             <span>Settings</span>
             <small className="coming-soon-label">Soon</small>
-          </NavLink>
+          </NavLink> */}
         </nav>
       </div>
 
