@@ -89,12 +89,36 @@ jobs:
         if: steps.exists.outputs.already_published == 'false'
         run: uv build
 
+      # The publish action runs in a container against the repository root and
+      # does NOT inherit this job's working-directory, so the built artifacts
+      # have to be located explicitly. Fail loudly here rather than letting the
+      # action report a confusing error about an unrelated dist/ directory.
+      - name: Verify build artifacts
+        if: steps.exists.outputs.already_published == 'false'
+        run: |
+          shopt -s nullglob
+          artifacts=(dist/*.whl dist/*.tar.gz)
+          if [ ${#artifacts[@]} -eq 0 ]; then
+            echo "::error::uv build produced no distributions in $PWD/dist"
+            exit 1
+          fi
+          echo "Found ${#artifacts[@]} distribution(s):"
+          printf '  %s\n' "${artifacts[@]}"
+
       - name: Publish to PyPI
         if: steps.exists.outputs.already_published == 'false'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
+          # Required: the action defaults to `dist/` at the repository root, but
+          # this job builds inside packages/catalyst-python-sdk. The repo root
+          # also has a dist/ holding committed PDFs, which the action would
+          # otherwise try to upload.
+          packages-dir: packages/catalyst-python-sdk/dist
           # Signed attestations proving the artifact came from this workflow.
           attestations: true
+          # Validate metadata before uploading rather than at the point of no
+          # return. Confirmed passing against the built artifacts.
+          verify-metadata: true
           print-hash: true
 
       - name: Summary
