@@ -3,16 +3,18 @@ Catalyst Python SDK demo.
 
 Shows the three things an application actually needs from a feature flag SDK:
 
-1. Fetch-on-load initialisation, done once at process startup.
-2. A background refresh thread so config changes land without a restart.
-3. Sub-millisecond, network-free checks inside request handlers.
+1. A client built once at process startup. Construction does no I/O.
+2. A check that reads the current snapshot, so a dashboard toggle lands without
+   a restart.
+3. A warm snapshot check at boot, so the service never serves a default it did
+   not have to.
 
-Run the Catalyst API first (see the repository README), then:
+Run against the hosted API (the default), or point it at your own:
 
     export CATALYST_SDK_KEY="cp_prod_..."
     export CATALYST_PROJECT_ID="<project uuid>"
-    export CATALYST_HOST="http://localhost:8000"
     export CATALYST_ENV="prod"
+    # export CATALYST_HOST="http://localhost:8000"
 
     python examples/fastapi_demo/app.py
 
@@ -42,6 +44,9 @@ from catalyst_sdk import (
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("catalyst-demo")
 
+#: Background polling only matters when reads are turned off. With the default
+#: read model, every check already picks up a change.
+BACKGROUND_REFRESH = os.getenv("CATALYST_BACKGROUND_REFRESH", "").lower() in ("1", "true", "yes")
 REFRESH_INTERVAL = float(os.getenv("CATALYST_REFRESH_SECONDS", "30"))
 
 client: Optional[CatalystClient] = None
@@ -53,10 +58,13 @@ def build_client() -> CatalystClient:
         return CatalystClient(
             sdk_key=os.getenv("CATALYST_SDK_KEY", ""),
             project_id=os.getenv("CATALYST_PROJECT_ID", ""),
-            host=os.getenv("CATALYST_HOST", "http://localhost:8000"),
+            # Unset means the hosted API; set it for staging or a local run.
+            host=os.getenv("CATALYST_HOST"),
             env=os.getenv("CATALYST_ENV", "prod"),
-            # Seed the snapshot from disk first so a restart is instant and can
-            # survive a momentarily unreachable API.
+            # Reads happen per check unless the demo is asked to poll instead.
+            refresh_on_evaluate=not BACKGROUND_REFRESH,
+            # The last good snapshot is persisted so a cold start can survive a
+            # momentarily unreachable API.
             cache_path=None if os.getenv("CATALYST_NO_CACHE") else True,
         )
     except ConfigurationError as exc:
@@ -68,7 +76,7 @@ def build_client() -> CatalystClient:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Loads the snapshot once, then keeps it fresh in the background."""
+    """Warms the snapshot at boot, then reads it as checks come in."""
     global client
     try:
         client = build_client()
@@ -76,21 +84,22 @@ async def lifespan(app: FastAPI):
         # An invalid key is a configuration mistake, not a transient blip.
         raise SystemExit(f"Catalyst rejected the SDK key: {exc}")
 
-    if client.is_ready:
-        logger.info(
-            "snapshot ready: v%s, %d flags for %s",
-            client.version, len(client.flag_keys()), client.env,
-        )
-    else:
+    # Fail loudly here rather than discovering a bad key on a user's request.
+    if not client.refresh():
         logger.warning(
-            "no snapshot available; every flag will serve its safe default (network: %s)",
+            "could not read the snapshot at boot; flags will serve their default (error: %s)",
             client.last_error,
         )
-
-    client.start_auto_refresh(
-        interval=REFRESH_INTERVAL,
-        on_error=lambda exc: logger.warning("refresh failed: %s", exc),
+    logger.info(
+        "snapshot ready: v%s, %d flags for %s from %s",
+        client.version, len(client.flag_keys()), client.env, client.host,
     )
+
+    if BACKGROUND_REFRESH:
+        client.start_auto_refresh(
+            interval=REFRESH_INTERVAL,
+            on_error=lambda exc: logger.warning("refresh failed: %s", exc),
+        )
     try:
         yield
     finally:
@@ -129,7 +138,8 @@ def checkout(
     """
     The classic use case: gate a feature with a flag and show which rule fired.
 
-    ``is_enabled`` is a local, in-memory lookup, so this handler does no I/O.
+    ``evaluate`` makes one conditional read and then decides locally, so the
+    answer reflects the current configuration.
     """
     sdk = _require_client()
 
