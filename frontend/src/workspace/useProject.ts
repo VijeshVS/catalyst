@@ -1,19 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 
 import {
   createEnvironment as createEnvironmentRequest,
   createFlag as createFlagRequest,
+  createFlagRule as createFlagRuleRequest,
+  deleteFlagRule as deleteFlagRuleRequest,
   evaluateFlag as evaluateFlagRequest,
   fetchFlags,
   fetchProjectEnvironments,
   getErrorMessage,
+  reorderFlagRules as reorderFlagRulesRequest,
   updateFlagEnvState,
+  updateFlagRule as updateFlagRuleRequest,
 } from '../api';
-import type { Environment, EvaluateResult, Flag, FlagState } from '../api';
+import type {
+  Environment,
+  EvaluateResult,
+  Flag,
+  FlagState,
+  RuleCondition,
+  TargetingRule,
+} from '../api';
 
 export interface PlaygroundState {
   userId: string;
+  attributes?: Record<string, unknown>;
   result?: EvaluateResult;
   evaluating?: boolean;
 }
@@ -36,8 +48,25 @@ export interface ProjectData {
     default_value: boolean;
   }) => Promise<Flag>;
   createEnvironment: (name: string) => Promise<Environment>;
-  evaluate: (flagKey: string, userId?: string) => Promise<void>;
+  createRule: (
+    flag: Flag,
+    data: { conditions: RuleCondition[]; serve: boolean },
+  ) => Promise<TargetingRule>;
+  updateRule: (
+    flag: Flag,
+    rule: TargetingRule,
+    data: { conditions?: RuleCondition[]; serve?: boolean },
+  ) => Promise<TargetingRule>;
+  deleteRule: (flag: Flag, rule: TargetingRule) => Promise<void>;
+  moveRule: (flag: Flag, rule: TargetingRule, direction: -1 | 1) => Promise<void>;
+  evaluate: (
+    flagKey: string,
+    userId?: string,
+    attributes?: Record<string, unknown>,
+  ) => Promise<void>;
+  setPlaygroundAttributes: (flagKey: string, attributes: Record<string, unknown>) => void;
   stateFor: (flag: Flag, environment?: string) => FlagState;
+  rulesFor: (flag: Flag, environment?: string) => TargetingRule[];
 }
 
 const FALLBACK_STATE: FlagState = {
@@ -174,13 +203,14 @@ export function useProject(projectId: string | undefined): ProjectData {
   );
 
   const evaluate = useCallback(
-    async (flagKey: string, requestedUserId?: string) => {
+    async (flagKey: string, requestedUserId?: string, requestedAttributes?: Record<string, unknown>) => {
       if (!projectId) return;
-      const state = playground[flagKey] ?? { userId: requestedUserId || 'user_123' };
-      const userId = requestedUserId || state.userId || 'user_123';
+      const state = playground[flagKey];
+      const userId = requestedUserId || state?.userId || 'user_123';
+      const attributes = requestedAttributes ?? state?.attributes;
       setPlayground((previous) => ({
         ...previous,
-        [flagKey]: { userId, evaluating: true },
+        [flagKey]: { userId, attributes, evaluating: true },
       }));
       try {
         const result = await evaluateFlagRequest({
@@ -188,15 +218,16 @@ export function useProject(projectId: string | undefined): ProjectData {
           flag_key: flagKey,
           env: activeEnv,
           user_id: userId,
+          attributes,
         });
         setPlayground((previous) => ({
           ...previous,
-          [flagKey]: { userId, result, evaluating: false },
+          [flagKey]: { userId, attributes, result, evaluating: false },
         }));
       } catch (requestError) {
         setPlayground((previous) => ({
           ...previous,
-          [flagKey]: { ...state, userId, evaluating: false },
+          [flagKey]: { ...(previous[flagKey] ?? { userId }), userId, attributes, evaluating: false },
         }));
         setError(getErrorMessage(requestError, 'Error evaluating flag'));
       }
@@ -213,22 +244,130 @@ export function useProject(projectId: string | undefined): ProjectData {
     [activeEnv],
   );
 
-  return {
-    flags,
-    environments,
-    activeEnv,
-    loading,
-    error,
-    playground,
-    setActiveEnv,
-    refresh,
-    toggleKillSwitch,
-    updateRollout,
-    createFlag,
-    createEnvironment,
-    evaluate,
-    stateFor,
-  };
+  // Kept in workspace state (not local component state) so the rule builder can
+  // preview conditions against the same context the playground will send.
+  const setPlaygroundAttributes = useCallback(
+    (flagKey: string, attributes: Record<string, unknown>) => {
+      setPlayground((previous) => ({
+        ...previous,
+        [flagKey]: { userId: previous[flagKey]?.userId ?? 'user_123', attributes },
+      }));
+    },
+    [],
+  );
+
+  const rulesFor = useCallback(
+    (flag: Flag, environment = activeEnv): TargetingRule[] =>
+      (flag.rules ?? [])
+        .filter((rule) => rule.env === environment)
+        .sort((first, second) => first.priority - second.priority),
+    [activeEnv],
+  );
+
+  const createRule = useCallback(
+    async (flag: Flag, data: { conditions: RuleCondition[]; serve: boolean }) => {
+      if (!projectId) throw new Error('Project is not available');
+      const created = await createFlagRuleRequest(projectId, flag.key, activeEnv, data);
+      await load();
+      return created;
+    },
+    [activeEnv, load, projectId],
+  );
+
+  const updateRule = useCallback(
+    async (
+      flag: Flag,
+      rule: TargetingRule,
+      data: { conditions?: RuleCondition[]; serve?: boolean },
+    ) => {
+      if (!projectId) throw new Error('Project is not available');
+      const updated = await updateFlagRuleRequest(projectId, flag.key, activeEnv, rule.id, data);
+      await load();
+      return updated;
+    },
+    [activeEnv, load, projectId],
+  );
+
+  const deleteRule = useCallback(
+    async (flag: Flag, rule: TargetingRule) => {
+      if (!projectId) throw new Error('Project is not available');
+      await deleteFlagRuleRequest(projectId, flag.key, activeEnv, rule.id);
+      await load();
+    },
+    [activeEnv, load, projectId],
+  );
+
+  const moveRule = useCallback(
+    async (flag: Flag, rule: TargetingRule, direction: -1 | 1) => {
+      if (!projectId) return;
+      // The API requires the complete ordering, so derive it from the current
+      // environment rules rather than patching a single priority in place.
+      const ordered = rulesFor(flag);
+      const index = ordered.findIndex((candidate) => candidate.id === rule.id);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= ordered.length) return;
+      const next = [...ordered];
+      [next[index], next[target]] = [next[target], next[index]];
+      try {
+        await reorderFlagRulesRequest(
+          projectId,
+          flag.key,
+          activeEnv,
+          next.map((candidate) => candidate.id),
+        );
+        await load();
+      } catch (requestError) {
+        setError(getErrorMessage(requestError, 'Error re-ordering targeting rules'));
+      }
+    },
+    [activeEnv, load, projectId, rulesFor],
+  );
+
+  return useMemo(
+    () => ({
+      flags,
+      environments,
+      activeEnv,
+      loading,
+      error,
+      playground,
+      setActiveEnv,
+      refresh,
+      toggleKillSwitch,
+      updateRollout,
+      createFlag,
+      createEnvironment,
+      createRule,
+      updateRule,
+      deleteRule,
+      moveRule,
+      evaluate,
+      setPlaygroundAttributes,
+      stateFor,
+      rulesFor,
+    }),
+    [
+      flags,
+      environments,
+      activeEnv,
+      loading,
+      error,
+      playground,
+      refresh,
+      toggleKillSwitch,
+      updateRollout,
+      createFlag,
+      createEnvironment,
+      createRule,
+      updateRule,
+      deleteRule,
+      moveRule,
+      evaluate,
+      setPlaygroundAttributes,
+      stateFor,
+      rulesFor,
+    ],
+  );
 }
 
 export interface ProjectOutletContext {

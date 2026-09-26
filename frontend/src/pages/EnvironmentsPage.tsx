@@ -49,7 +49,7 @@ export function EnvironmentsPage() {
       <form className="environment-create-panel" onSubmit={submit}>
         <div className="environment-create-copy"><span className="plus-circle">+</span><div><h3>Add a custom environment</h3><p>Use a lowercase identifier such as <code>qa</code> or <code>perf-test</code>.</p></div></div>
         <div className="environment-create-controls">
-          <input className="form-input" required pattern="[a-z][a-z0-9_-]{0,63}" maxLength={64} placeholder="e.g. qa" value={name} onChange={(event) => setName(event.target.value)} aria-label="New environment name" />
+          <input className="form-input" required pattern={'[a-z][a-z0-9_\\-]{0,63}'} maxLength={64} placeholder="e.g. qa" value={name} onChange={(event) => setName(event.target.value)} aria-label="New environment name" />
           <button className="btn-primary" type="submit" disabled={busy || !name.trim()}>{busy ? 'Adding…' : '+ New environment'}</button>
         </div>
         {error && <div className="form-error">{error}</div>}

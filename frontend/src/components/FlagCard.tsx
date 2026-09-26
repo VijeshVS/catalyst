@@ -2,6 +2,7 @@ import type { Flag } from '../api';
 import { EvalPlayground } from './EvalPlayground';
 import { KillSwitchButton } from './KillSwitchButton';
 import { RolloutSlider } from './RolloutSlider';
+import { RuleBuilder } from './RuleBuilder';
 import type { ProjectData } from '../workspace/useProject';
 
 interface FlagCardProps {
@@ -36,6 +37,8 @@ export function FlagCard({ flag, projectData }: FlagCardProps) {
         disabled={!state.enabled}
         onChange={(percentage) => void projectData.updateRollout(flag, percentage)}
       />
+
+      <RuleBuilder flag={flag} projectData={projectData} />
 
       <EvalPlayground flagKey={flag.key} projectData={projectData} />
     </article>

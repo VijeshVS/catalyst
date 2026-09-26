@@ -82,7 +82,7 @@ export function FlagCreatePanel({ open, onClose, projectData }: FlagCreatePanelP
               id="flag-key"
               className="form-input"
               required
-              pattern="[a-z0-9._-]+"
+              pattern={'[a-z0-9._\\-]+'}
               placeholder="new-checkout-v2"
               value={key}
               onChange={(event) => setKey(event.target.value)}

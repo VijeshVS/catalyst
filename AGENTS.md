@@ -45,7 +45,7 @@ catalyst/
 │   │   ├── core/             # DB, Redis, settings, security/password/JWT helpers
 │   │   ├── models/           # SQLAlchemy data models
 │   │   ├── schemas/          # Pydantic request/response schemas
-│   │   ├── services/         # evaluator and environment lifecycle/versioning
+│   │   ├── services/         # evaluator, environment lifecycle/versioning, targeting rules, API keys
 │   │   └── main.py           # FastAPI application entry point
 │   ├── migrations/           # documented one-time SQL transition for pre-auth Phase 1 DBs
 │   ├── tests/                # pytest suite (self-contained, SQLite-backed)
@@ -54,7 +54,8 @@ catalyst/
 ├── frontend/
 │   └── src/
 │       ├── auth/              # AuthContext, protected/public route wrappers
-│       ├── components/       # shell, sidebar, flag controls, environment UI
+│       ├── components/       # shell, sidebar, flag controls, rule builder, environment UI
+│       ├── lib/               # attribute catalogue + operator/coercion/preview helpers
 │       ├── pages/             # landing, onboarding, org/project, auth and future tabs
 │       ├── workspace/         # WorkspaceContext and useProject project-data hook
 │       ├── App.tsx            # React Router route table
@@ -75,7 +76,7 @@ catalyst/
 * **Redis** is the async caching layer with connection retry and health checks.
 * Database and Redis connectivity are exposed through `/healthz` and `/api/v1/healthz`.
 * API routes are versioned under `backend/app/api/v1/`; shared lookup helpers (`get_current_user`, `get_organization_or_404`, `get_project_or_404`, `get_environment_or_404`) live in `api/v1/deps.py`.
-* Business logic is isolated in `services/`: flag evaluation in `services/evaluator.py`, environment provisioning/state seeding/version invalidation in `services/environments.py`.
+* Business logic is isolated in `services/`: flag evaluation and the operator catalogue in `services/evaluator.py`, environment provisioning/state seeding/version invalidation in `services/environments.py`, targeting rule ordering/audit snapshots in `services/rules.py`, and SDK key issuance in `services/api_keys.py`.
 * The existing startup `Base.metadata.create_all()` path remains for fresh development/test databases. It does not upgrade an existing database; startup now verifies the auth columns and fails with an actionable migration message when an old Phase 1 schema is detected. The explicit PostgreSQL transition is documented in `backend/migrations/README.md` and `001_auth_ownership.sql`.
 
 ### Authentication & Authorization
@@ -117,8 +118,18 @@ Evaluation follows the implemented evaluator logic:
 
 * **Emergency Kill Switch:** immediately returns the configured default value.
 * **Percentage Rollout:** deterministic Murmur3 hashing based on `flag_key:user_id`.
-* **Targeting Rules:** evaluates user attributes against configured conditions.
+* **Targeting Rules:** evaluates user attributes against configured conditions, first match by ascending `priority` wins.
 * Rollouts are sticky/deterministic for the same flag and evaluation user.
+
+### Rule-Based Targeting (Phase 3)
+
+* `TargetingRule` is **environment-scoped** (`flag_id` + `env`), ordered by `priority` where `0` is the highest. Priorities are kept dense (`0..n-1`) on create-append, reorder, and delete.
+* Conditions are `{"attr", "op", "value"}` and are **ANDed** within a rule. A rule must carry 1-25 conditions; an empty condition list is an unconditional match and is rejected by the API.
+* Supported operators (canonical names; `eq`/`neq`/`gt`/`gte`/`lt`/`lte`/`notExists` are accepted and normalized on write): `equals`, `not_equals`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `greater_than`, `greater_than_or_equal`, `less_than`, `less_than_or_equal`, `exists`, `not_exists`. `in`/`not_in` accept a list or a comma-separated string; `exists`/`not_exists` ignore `value`.
+* A missing attribute makes a condition false (the rule safely skips); `equals` is case-sensitive while `contains`/`starts_with`/`ends_with` are not.
+* `RuleCondition`/`RuleCreate`/`RuleUpdate` live in `app/schemas/schemas.py`; ordering and audit helpers live in `app/services/rules.py`.
+* Every rule mutation bumps only the mutated environment's `Environment.version` (busting that ETag only) and writes an `AuditLog` action of `rule.created`, `rule.updated`, `rule.deleted`, or `rule.reordered`.
+* The `conditions_json` column is exposed as `conditions` on every wire format (flag list, rule CRUD, `/evaluate`, `/bootstrap`).
 
 ### Important APIs
 
@@ -137,6 +148,11 @@ Evaluation follows the implemented evaluator logic:
 * `POST /api/v1/flags?project_id=` — Create flag
 * `GET /api/v1/flags/{key}?project_id=` — Get flag
 * `PATCH /api/v1/flags/{key}/environments/{env}?project_id=` — Update environment state / rollout / kill switch
+* `GET /api/v1/flags/{key}/environments/{env}/rules?project_id=` — List targeting rules in priority order
+* `POST /api/v1/flags/{key}/environments/{env}/rules?project_id=` — Create targeting rule
+* `PUT /api/v1/flags/{key}/environments/{env}/rules/reorder?project_id=` — Re-order rules, renormalize `0..n-1`
+* `PUT /api/v1/flags/{key}/environments/{env}/rules/{rule_id}?project_id=` — Update conditions / serve value / priority
+* `DELETE /api/v1/flags/{key}/environments/{env}/rules/{rule_id}?project_id=` — Delete rule and close the priority gap
 * `POST /api/v1/evaluate?project_id=` — Evaluate a flag
 * `POST /api/v1/batch-evaluate?project_id=` — Batch flag evaluation
 * `GET /api/v1/bootstrap?project_id=&env=` — SDK configuration snapshot (supports Bearer or X-SDK-Key)
@@ -191,9 +207,12 @@ Evaluation follows the implemented evaluator logic:
 * `AuthContext` restores an in-memory access token from a localStorage refresh token, exposes login/register/logout, and redirects protected routes to `/login`.
 * `api.ts` attaches bearer tokens, shares a single refresh request, retries protected requests once after a `401`, and emits an auth-expired event when refresh fails. Access tokens stay in memory; refresh tokens use localStorage as a documented MVP tradeoff (not httpOnly).
 * `WorkspaceContext` owns authenticated organization/project summaries, last-valid organization persistence, and organization/project creation.
-* `useProject(projectId)` owns flags, environments, active environment/query state, polling, playground evaluation, and flag/environment mutations.
+* `useProject(projectId)` owns flags, environments, active environment/query state, polling, playground evaluation (with context attributes), and flag/environment/rule mutations.
 * Persistent `AppShell`/`Sidebar` provides organization switching and project navigation. The global header contains only Catalyst branding, health status, and the user menu; organization/project/environment navigation lives in the sidebar/project header.
-* Extracted reusable components include `Sidebar`, `FlagCard`, `KillSwitchButton`, `RolloutSlider`, `EvalPlayground`, and `EnvBadge`, plus auth/layout/flag-creation components.
+* Extracted reusable components include `Sidebar`, `FlagCard`, `KillSwitchButton`, `RolloutSlider`, `RuleBuilder`, `EvalPlayground`, and `EnvBadge`, plus auth/layout/flag-creation components.
+* Rule conditions are built by picking from the attribute catalogue rather than typed: the attribute is a grouped select, the operator list is filtered per attribute, and the value control is derived from the attribute's kind (boolean toggle, enum select, numeric input, or token chips for `in`/`not_in`). `RuleBuilder` also renders a live match preview of the whole rule chain against the playground context.
+* `frontend/src/lib/targeting.ts` owns the operator catalogue, the shared value coercion used by both rule conditions and playground attributes, list-token splitting/joining, draft validation, and attribute-input parsing (`key=value` lines or JSON).
+* `frontend/src/lib/attributeCatalog.ts` owns the preset attribute catalogue (grouped, with value kind, sensible operators, enum options, and example values) and the client-side mirror of the evaluator (`previewConditionMatch` / `previewRuleMatch`) that powers the builder's match preview. The server remains the source of truth for what is actually served; the preview is advisory only.
 * Existing feature flag functionality is preserved on the new pages: kill switch, rollout slider, evaluation playground, flag creation slide-over, custom environment management, and cache version display.
 
 ## Local Infrastructure
@@ -245,6 +264,8 @@ Current backend coverage includes:
 * Deterministic sticky rollout hashing
 * Emergency Kill Switch behavior
 * Targeting rule evaluation
+* Targeting rule CRUD, condition validation, dense priority re-ordering, and cross-user/project/environment isolation
+* Rule-driven evaluation precedence and environment-scoped cache invalidation on rule mutations
 * Organization CRUD and project creation with auto-provisioned environments
 * Custom environment management (validation, duplicates, seeding of flag states)
 * Strict project scoping and project isolation (flags, evaluate, bootstrap, audit)
@@ -255,13 +276,13 @@ Current backend coverage includes:
 * SDK authentication via X-SDK-Key header
 * Project-scoped SDK access to /bootstrap and /evaluate endpoints
 
-The suite reports **25 tests passing**.
+The suite reports **39 tests passing**.
 
 Frontend checks:
 
 ```bash
 cd frontend
-npm run test       # routing-critical and auth-aware API Vitest tests
+npm run test       # routing, auth-aware API client, targeting helpers, and rule builder Vitest tests
 npm run lint
 npm run build
 ```
@@ -270,6 +291,6 @@ npm run build
 
 Automated on pull requests targeting `main` and pushes to `main` via `.github/workflows/ci.yml`:
 
-* **`backend-tests`**: Runs on Python 3.12 with `uv` (`uv run pytest` - all 25 SQLite-backed unit and integration tests).
+* **`backend-tests`**: Runs on Python 3.12 with `uv` (`uv run pytest` - all 39 SQLite-backed unit and integration tests).
 * **`frontend-checks`**: Runs on Node 22 (`npm ci`, `npm run test`, `npm run lint`, `npm run build`).
 

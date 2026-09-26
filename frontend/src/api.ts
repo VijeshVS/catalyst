@@ -49,11 +49,36 @@ export interface FlagState {
   version: number;
 }
 
+/**
+ * Canonical condition operators accepted by the API. Aliases (`eq`, `gt`, …)
+ * are normalized server-side; the builder always sends canonical names.
+ */
+export type RuleOperator =
+  | 'equals'
+  | 'not_equals'
+  | 'in'
+  | 'not_in'
+  | 'contains'
+  | 'starts_with'
+  | 'ends_with'
+  | 'greater_than'
+  | 'greater_than_or_equal'
+  | 'less_than'
+  | 'less_than_or_equal'
+  | 'exists'
+  | 'not_exists';
+
+export interface RuleCondition {
+  attr: string;
+  op: RuleOperator;
+  value?: unknown;
+}
+
 export interface TargetingRule {
-  id?: string;
+  id: string;
   env: string;
   priority: number;
-  conditions_json: unknown[];
+  conditions: RuleCondition[];
   serve: boolean;
 }
 
@@ -421,6 +446,83 @@ export async function updateFlagEnvState(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Targeting rules (environment scoped, ordered by priority)
+// ---------------------------------------------------------------------------
+function rulesPath(flagKey: string, env: string): string {
+  return `${API_BASE}/flags/${encodeURIComponent(flagKey)}/environments/${encodeURIComponent(env)}/rules`;
+}
+
+function rulesUrl(projectId: string, flagKey: string, env: string): string {
+  return `${rulesPath(flagKey, env)}?project_id=${encodeURIComponent(projectId)}`;
+}
+
+export async function fetchFlagRules(
+  projectId: string,
+  flagKey: string,
+  env: string,
+): Promise<TargetingRule[]> {
+  return jsonRequest<TargetingRule[]>(rulesUrl(projectId, flagKey, env));
+}
+
+export async function createFlagRule(
+  projectId: string,
+  flagKey: string,
+  env: string,
+  data: { conditions: RuleCondition[]; serve: boolean; priority?: number },
+): Promise<TargetingRule> {
+  return jsonRequest<TargetingRule>(rulesUrl(projectId, flagKey, env), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateFlagRule(
+  projectId: string,
+  flagKey: string,
+  env: string,
+  ruleId: string,
+  data: { conditions?: RuleCondition[]; serve?: boolean; priority?: number },
+): Promise<TargetingRule> {
+  return jsonRequest<TargetingRule>(
+    `${rulesPath(flagKey, env)}/${encodeURIComponent(ruleId)}?project_id=${encodeURIComponent(projectId)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export async function reorderFlagRules(
+  projectId: string,
+  flagKey: string,
+  env: string,
+  ruleIds: string[],
+): Promise<TargetingRule[]> {
+  return jsonRequest<TargetingRule[]>(
+    `${rulesPath(flagKey, env)}/reorder?project_id=${encodeURIComponent(projectId)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rule_ids: ruleIds }),
+    },
+  );
+}
+
+export async function deleteFlagRule(
+  projectId: string,
+  flagKey: string,
+  env: string,
+  ruleId: string,
+): Promise<void> {
+  return jsonRequest<void>(
+    `${rulesPath(flagKey, env)}/${encodeURIComponent(ruleId)}?project_id=${encodeURIComponent(projectId)}`,
+    { method: 'DELETE' },
   );
 }
 
