@@ -1,8 +1,8 @@
-from typing import Any, Dict, Union
+from typing import Union
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.v1.deps import (
     get_current_sdk_key_or_user,
@@ -10,8 +10,9 @@ from app.api.v1.deps import (
     get_project_or_404,
 )
 from app.core.db import get_db
-from app.models.models import ApiKey, Environment, Flag, User
+from app.models.models import ApiKey, Environment, User
 from app.schemas.schemas import BootstrapResponse
+from app.services.snapshots import build_etag, load_env_snapshot
 
 router = APIRouter(prefix="/bootstrap", tags=["SDK Bootstrap"])
 
@@ -26,11 +27,14 @@ async def get_bootstrap_snapshot(
     auth_entity: Union[ApiKey, User] = Depends(get_current_sdk_key_or_user),
 ):
     """
-    Returns full environment flag snapshot for SDK in-memory evaluation.
+    Returns full environment flag snapshot for SDK evaluation.
     Supports HTTP ETag and If-None-Match for 304 Not Modified.
 
     The ETag derives from `Environment.version`, which is incremented by every
-    mutation that changes this project environment's flag snapshot.
+    mutation that changes this project environment's flag snapshot. The snapshot
+    body itself is served from Redis when available and rebuilt from PostgreSQL
+    on a miss, so a `304` costs one indexed environment lookup rather than a
+    join over every flag, state and rule.
 
     Authentication: Either Bearer token (user) or X-SDK-Key (SDK).
     """
@@ -71,55 +75,21 @@ async def get_bootstrap_snapshot(
             )
     else:
         environment = await get_environment_or_404(db, project.id, env, auth_entity.id)
-    env_version = environment.version
 
-    etag = f'W/"{project.id}:{env}:{env_version}"'
+    etag = build_etag(project.id, env, environment.version)
     client_etag = request.headers.get("if-none-match")
     if client_etag == etag:
+        # The environment version is unchanged, so the client's copy is still
+        # current and the snapshot body never has to be loaded.
         return Response(
             status_code=status.HTTP_304_NOT_MODIFIED,
             headers={"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"},
         )
 
-    # Fetch active flags for this project only
-    stmt = (
-        select(Flag)
-        .where(Flag.project_id == project.id, Flag.archived == False)
-        .options(selectinload(Flag.states), selectinload(Flag.rules))
-    )
-    res = await db.execute(stmt)
-    flags = res.scalars().all()
-
-    flag_map: Dict[str, Any] = {}
-    for flag in flags:
-        state = next((s for s in flag.states if s.env == env), None)
-        enabled = state.enabled if state else True
-        percentage = state.percentage if state else 0
-
-        rules = [
-            {
-                "id": r.id,
-                "priority": r.priority,
-                "conditions": r.conditions_json,
-                "serve": r.serve,
-            }
-            for r in sorted(flag.rules, key=lambda x: x.priority)
-            if r.env == env
-        ]
-
-        flag_map[flag.key] = {
-            "key": flag.key,
-            "defaultValue": flag.default_value,
-            "enabled": enabled,
-            "percentage": percentage,
-            "rules": rules,
-        }
+    snapshot = await load_env_snapshot(db, project.id, env, environment.version)
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+    response.headers["X-Catalyst-Cache"] = snapshot.source
 
-    return BootstrapResponse(
-        env=env,
-        version=env_version,
-        flags=flag_map,
-    )
+    return BootstrapResponse(**snapshot.to_payload())

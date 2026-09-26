@@ -38,6 +38,13 @@ class Settings(BaseSettings):
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
+    # Serves /bootstrap and /evaluate from a cached snapshot when Redis is
+    # reachable. Turning this off makes every request query PostgreSQL.
+    SNAPSHOT_CACHE_ENABLED: bool = True
+    # Backstop TTL for cached snapshots. Invalidation is version driven, so this
+    # only matters if a mutation ever fails to bump its environment version; it
+    # bounds how long such a stale entry could survive.
+    SNAPSHOT_CACHE_TTL: int = Field(default=60, ge=1)
 
     # API
     API_V1_STR: str = "/api/v1"
