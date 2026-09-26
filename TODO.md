@@ -303,13 +303,13 @@ This roadmap outlines upcoming features organized in the recommended implementat
 
 > **Goal:** Provide a zero-latency, in-memory evaluation client library for Python applications.
 >
-> **Status: ✅ Complete.** The `catalyst-sdk` package fetches the bootstrap snapshot on load, evaluates
+> **Status: ✅ Complete.** The `sdk-catalyst` package fetches the bootstrap snapshot on load, evaluates
 > flags locally with no per-call I/O, refreshes conditionally with `If-None-Match`, and degrades to safe
 > defaults instead of raising. Local evaluation is held byte-identical to the server by a differential
 > test suite that fuzzes both implementations against each other.
 
 - [x] **Package Structure (`packages/catalyst-python-sdk`)**
-  - Scaffolding with `pyproject.toml` (`catalyst-sdk`), hatchling build, `py.typed`
+  - Scaffolding with `pyproject.toml` (`sdk-catalyst`), hatchling build, `py.typed`
   - Standalone Murmur3 hashing and rule evaluation engine
 - [x] **SDK Features**
   - `CatalystClient(sdk_key="cp_prod_...", project_id=..., host="http://...", env="prod")`
@@ -343,6 +343,8 @@ This roadmap outlines upcoming features organized in the recommended implementat
 - [x] **In-app documentation page** — `frontend/src/pages/DocsPage.tsx` serves the SDK reference at the public `/docs` route, so the landing page's "View Docs" CTA and footer "Documentation" link resolve to real content instead of 404ing. The page is also linked from the dashboard `Sidebar`, making it reachable from every `/app/**` route and not just the public marketing pages. Twelve sections with a sticky table of contents, copyable code blocks (`CodeBlock.tsx`), and configuration / operator / evaluation-reason / error tables.
 - [x] **FastAPI demo** (`examples/fastapi_demo/app.py`) — fetch-on-load startup, a background refresh thread, a flag-gated `/api/checkout` endpoint, `/api/flags` and `/api/inspect` for bulk and single-flag decisions, and a `/health` endpoint that separates "API down" from "stale but serving".
 - [x] **CI job** — `sdk-tests` runs the SDK suite on Python 3.12, verifies the wheel builds, and runs the parity suite in the backend environment.
+- [x] **PyPI publishing** — the distribution is published as **`sdk-catalyst`**, because the `catalyst-sdk` name on PyPI belongs to an unrelated project. The import name stays `catalyst_sdk`. The package uses PEP 639 licensing (`license = "MIT"` plus a bundled `LICENSE`) and ships `py.typed`.
+- [x] **Automated release workflow** (`.github/workflows/publish-sdk.yml`) — runs on pushes to `main` that touch the package. It re-runs the SDK and parity suites **before** publishing, so a broken version can never reach PyPI, and skips the upload when the version already exists so a docs-only merge cannot fail the build. Auth uses PyPI Trusted Publishing (OIDC), so no API token is stored in the repository. Releasing means bumping `version` in `pyproject.toml` and merging.
 
 ### Bug found and fixed by the parity suite
 

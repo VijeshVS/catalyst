@@ -37,7 +37,7 @@ if client.is_enabled("new-checkout", user_id="user_123",
 else:
     render_coming_soon()`;
 
-const INSTALL = `pip install catalyst-sdk
+const INSTALL = `pip install sdk-catalyst
 
 # From a checkout
 uv sync
@@ -236,7 +236,7 @@ export function DocsPage() {
             Feature flags, evaluated <em>locally.</em>
           </h1>
           <p className="docs-lede">
-            The <code>catalyst-sdk</code> package fetches your environment snapshot once, then
+            The <code>sdk-catalyst</code> package fetches your environment snapshot once, then
             answers every flag check in microseconds without touching the network. No polling in
             your request path, no latency budget spent on a round trip.
           </p>
@@ -277,6 +277,12 @@ export function DocsPage() {
           <section id="install" className="docs-section">
             <h2>Install</h2>
             <CodeBlock code={INSTALL} language="bash" />
+            <p className="docs-note">
+              The distribution is named <strong>sdk-catalyst</strong> — the{' '}
+              <code>catalyst-sdk</code> name is taken on PyPI by an unrelated project. The import
+              name is unchanged, so code keeps using <code>from catalyst_sdk import CatalystClient</code>.
+              Requires Python 3.11 or newer.
+            </p>
           </section>
 
           <section id="configuration" className="docs-section">

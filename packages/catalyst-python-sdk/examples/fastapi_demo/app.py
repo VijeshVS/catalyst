@@ -110,7 +110,7 @@ def _require_client() -> CatalystClient:
 @app.get("/")
 def index() -> Dict[str, Any]:
     return {
-        "service": "catalyst-sdk-demo",
+        "service": "sdk-catalyst-demo",
         "endpoints": [
             "GET /api/checkout?user_id=...  (x-user-email / x-plan headers)",
             "GET /api/flags?user_id=...     (evaluate every flag once)",

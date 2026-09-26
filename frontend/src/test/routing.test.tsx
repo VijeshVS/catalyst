@@ -45,7 +45,12 @@ describe('public and protected routing', () => {
     expect(
       await screen.findByRole('heading', { name: /evaluated \s*locally/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText('catalyst-sdk')).toBeInTheDocument();
+    // The published distribution name must appear in the install snippet, so a
+    // rename cannot silently leave stale install instructions on the page.
+    const installBlock = document.querySelectorAll('.code-block-body code');
+    const installText = [...installBlock].map((el) => el.textContent ?? '').join('\n');
+    expect(installText).toContain('pip install sdk-catalyst');
+    expect(installText).not.toContain('pip install catalyst-sdk\n');
     // Every section the table of contents advertises must exist.
     for (const label of [
       'Quick start',
