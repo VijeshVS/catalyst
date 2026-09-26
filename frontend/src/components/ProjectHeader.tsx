@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import type { Organization, Project } from '../api';
@@ -18,18 +19,30 @@ function withEnvironment(pathname: string, search: string, environment: string):
 export function ProjectHeader({ organization, project, projectData }: ProjectHeaderProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [copied, setCopied] = useState(false);
   const basePath = `/app/orgs/${organization.id}/projects/${project.id}`;
   const currentPath = location.pathname;
   const query = location.search;
   const isFlags = currentPath === basePath;
   const isEnvironments = currentPath === `${basePath}/environments`;
   const isKeys = currentPath === `${basePath}/keys`;
-  const isAudit = currentPath === `${basePath}/audit`;
-  const isSettings = currentPath === `${basePath}/settings`;
 
   const navigateEnvironment = (environment: string) => {
     projectData.setActiveEnv(environment);
     navigate(withEnvironment(currentPath, query, environment));
+  };
+
+  // The SDK needs this value alongside an SDK key, so make it copyable rather
+  // than forcing anyone to select a UUID by hand.
+  const copyProjectId = async () => {
+    try {
+      await navigator.clipboard.writeText(project.id);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Clipboard access can be denied; do not claim a copy happened.
+      setCopied(false);
+    }
   };
 
   return (
@@ -48,6 +61,25 @@ export function ProjectHeader({ organization, project, projectData }: ProjectHea
         <div className="project-summary-pill">
           <span>{projectData.flags.length}</span> flags
         </div>
+      </div>
+
+      <div className="project-id-row">
+        <span className="project-id-label" id="project-id-label">
+          Project ID
+        </span>
+        <code className="project-id-value">{project.id}</code>
+        <button
+          type="button"
+          className="project-id-copy"
+          onClick={copyProjectId}
+          aria-labelledby="project-id-label"
+          data-copied={copied}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+        <span className="project-id-hint">
+          Used by the SDK alongside your API key.
+        </span>
       </div>
 
       <div className="environment-strip" aria-label="Project environments">
@@ -83,23 +115,9 @@ export function ProjectHeader({ organization, project, projectData }: ProjectHea
         </Link>
         <Link
           to={withEnvironment(`${basePath}/keys`, query, projectData.activeEnv)}
-          className={`project-tab ${isKeys ? 'active' : ''} : ''`}
+          className={`project-tab ${isKeys ? 'active' : ''}`}
         >
           API Keys
-        </Link>
-        <Link
-          to={withEnvironment(`${basePath}/audit`, query, projectData.activeEnv)}
-          className={`project-tab ${isAudit ? 'active' : ''} disabled-tab`}
-          onClick={(event) => event.preventDefault()}
-        >
-          Audit Log <small>Phase 3</small>
-        </Link>
-        <Link
-          to={withEnvironment(`${basePath}/settings`, query, projectData.activeEnv)}
-          className={`project-tab ${isSettings ? 'active' : ''} disabled-tab`}
-          onClick={(event) => event.preventDefault()}
-        >
-          Settings <small>Phase 3</small>
         </Link>
       </nav>
     </div>
