@@ -84,6 +84,8 @@ export function useProject(projectId: string | undefined): ProjectData {
   const [error, setError] = useState<string | null>(null);
   const [playground, setPlayground] = useState<Record<string, PlaygroundState>>({});
   const requestSequence = useRef(0);
+  // Guards optimistic rollout writes against out-of-order responses.
+  const rolloutSequences = useRef(new Map<string, number>());
 
   const load = useCallback(async () => {
     const sequence = ++requestSequence.current;
@@ -153,8 +155,14 @@ export function useProject(projectId: string | undefined): ProjectData {
   const updateRollout = useCallback(
     async (flag: Flag, percentage: number) => {
       if (!projectId) return;
-      try {
-        await updateFlagEnvState(projectId, flag.key, activeEnv, { percentage });
+      // The value is shown before the server confirms it, so a slow response
+      // must not overwrite a newer edit that is already on screen. Each
+      // (flag, environment) pair keeps its own sequence number.
+      const key = `${flag.id}:${activeEnv}`;
+      const sequence = (rolloutSequences.current.get(key) ?? 0) + 1;
+      rolloutSequences.current.set(key, sequence);
+
+      const applyPercentage = (value: number) => {
         setFlags((previous) =>
           previous.map((currentFlag) => {
             if (currentFlag.id !== flag.id) return currentFlag;
@@ -163,17 +171,28 @@ export function useProject(projectId: string | undefined): ProjectData {
               ...currentFlag,
               states: existing
                 ? currentFlag.states.map((state) =>
-                    state.env === activeEnv ? { ...state, percentage } : state,
+                    state.env === activeEnv ? { ...state, percentage: value } : state,
                   )
-                : [...currentFlag.states, { ...FALLBACK_STATE, env: activeEnv, percentage }],
+                : [...currentFlag.states, { ...FALLBACK_STATE, env: activeEnv, percentage: value }],
             };
           }),
         );
+      };
+
+      applyPercentage(percentage);
+
+      try {
+        await updateFlagEnvState(projectId, flag.key, activeEnv, { percentage });
+        if ((rolloutSequences.current.get(key) ?? 0) !== sequence) return;
       } catch (requestError) {
+        if ((rolloutSequences.current.get(key) ?? 0) !== sequence) return;
         setError(getErrorMessage(requestError, 'Error updating rollout'));
+        // Drop the sequence so the next poll is free to reconcile the slider.
+        rolloutSequences.current.delete(key);
+        await load();
       }
     },
-    [activeEnv, projectId],
+    [activeEnv, load, projectId],
   );
 
   const createFlag = useCallback(

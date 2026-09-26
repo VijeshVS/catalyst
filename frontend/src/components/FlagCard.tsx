@@ -35,7 +35,7 @@ export function FlagCard({ flag, projectData }: FlagCardProps) {
       <RolloutSlider
         percentage={state.percentage}
         disabled={!state.enabled}
-        onChange={(percentage) => void projectData.updateRollout(flag, percentage)}
+        onCommit={(percentage) => void projectData.updateRollout(flag, percentage)}
       />
 
       <RuleBuilder flag={flag} projectData={projectData} />
