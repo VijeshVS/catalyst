@@ -40,6 +40,7 @@ This workflow is triggered **only when the user asks to push code to GitHub**.
 
 ```text
 catalyst/
+├── render.yaml              # Render blueprint (API service; no DB, see Deployment)
 ├── backend/
 │   ├── app/
 │   │   ├── api/v1/          # auth, health, organizations, projects, flags, evaluate, bootstrap, audit + shared deps
@@ -244,6 +245,56 @@ Docker Compose provides:
 * Both services have health checks and persistent volumes.
 
 Environment configuration is provided through `.env.example`, including JWT secret and expiry settings.
+
+## Deployment
+
+The backend runs on **Render**, the frontend on **Vercel**, and the datastores sit on **Neon**
+(Postgres) and **Render Key Value** (Redis). Both providers auto-deploy from `main`.
+
+| Piece | Where | Notes |
+|---|---|---|
+| API | Render web service `catalyst-api` (free, `oregon`) | Native Python, no Docker, built with `uv` |
+| Frontend | Vercel project `catalyst-dashboard` | `rootDirectory: frontend`, production branch `main` |
+| Database | Neon project `catalyst` (`aws-us-west-2`, PG 16.15) | 9 tables, created by the app's startup `create_all()` |
+| Cache | Render Key Value `catalyst-cache` (free, 25 MB) | In-memory only; empty after every restart |
+
+### Gotchas that will bite you
+
+* **Neon's `sslmode=require` breaks asyncpg.** The app uses `postgresql+asyncpg://`, and that driver
+  rejects `sslmode` with `TypeError: connect() got an unexpected keyword argument 'sslmode'`. Strip
+  it from the connection string before setting `DATABASE_URL`.
+* **The Redis internal URL carries no password, by design.** `redis://<resource-id>:6379` is
+  reachable only over Render's private network (`ipAllowList: []` blocks external entirely). It will
+  not resolve from a laptop, so the SDK and the Flask demo cannot use that cache — point them at
+  local Redis instead. The API is in the same region as the Key Value, which is what makes internal
+  DNS resolve at all.
+* **Render's free Postgres is deliberately not used.** It expires 30 days after creation and then
+  deletes the data, so `render.yaml` declares no database and `DATABASE_URL` points at Neon.
+* **The Render API's env-var path takes the KEY, not the id:**
+  `PUT /v1/services/{id}/env-vars/{KEY}`. Passing an id silently *creates* a junk variable instead of
+  updating. Delete junk with `DELETE /v1/services/{id}/env-vars/{KEY}`.
+* **The frontend needs `VITE_API_BASE_URL` at build time.** `api.ts` falls back to the relative
+  `/api/v1` used by the Vite dev proxy, which would resolve against the Vercel origin and 404.
+  `frontend/vercel.json` supplies the SPA rewrite that keeps `/docs` and `/app/**` working on a hard
+  refresh.
+* `CORS_ORIGINS` on the API must list the deployed frontend origin, or every browser request is
+  blocked.
+
+### Free-tier limits (demo environment, not production)
+
+* Render spins down after 15 minutes idle; a cold start takes about a minute, and Neon suspends when
+  idle, so cold starts can stack.
+* Neither service has backups.
+* `JWT_SECRET` and `SECRET_KEY` are set with `generateValue: true` in `render.yaml`. Never deploy
+  the shipped `change-this-jwt-secret-in-production` default to a public host — it would let anyone
+  forge access tokens.
+
+### Local data is not production data
+
+Local Docker Postgres and Neon are entirely separate databases. An SDK key or project created against
+`localhost:8000` does **not** exist in production, and `/api/v1/bootstrap` will answer
+`404 API key not found`. To use the SDK against production, create the project and mint the key from
+the production dashboard, since SDK keys are read-only and cannot be created over the API.
 
 ## Development Commands
 
