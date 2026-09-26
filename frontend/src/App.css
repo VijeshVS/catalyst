@@ -741,6 +741,16 @@ textarea.form-input { resize: vertical; line-height: 1.6; }
 .docs-facts strong { display: block; color: var(--gold-bright); font: 700 22px var(--font-display); }
 .docs-facts span { display: block; margin-top: 5px; color: var(--text-muted); font-size: 8px; letter-spacing: .5px; text-transform: uppercase; }
 .docs-layout { display: grid; grid-template-columns: 214px minmax(0, 1fr); align-items: start; gap: 45px; max-width: 1160px; margin: 0 auto; padding: 52px 22px 90px; }
+.docs-search { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); }
+.docs-search .docs-toc-title { margin-bottom: 0; }
+.docs-search-row { display: flex; gap: 6px; }
+.docs-search-row input { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(0,0,0,.35); color: var(--text-primary); font: 10px var(--font-mono); }
+.docs-search-row input::placeholder { color: var(--text-muted); }
+.docs-search-row input:focus { border-color: var(--gold-primary); outline: none; }
+.docs-search-button { padding: 7px 11px; border: 1px solid var(--gold-primary); border-radius: 6px; background: linear-gradient(135deg, var(--gold-primary), var(--amber-accent)); color: var(--bg-primary); font: 700 9px var(--font-mono); letter-spacing: .5px; text-transform: uppercase; cursor: pointer; }
+.docs-search-button:hover { background: var(--gold-bright); }
+.docs-search-status { margin: 0; color: var(--text-muted); font: 9px var(--font-mono); }
+.docs-toc a.docs-toc-active { color: var(--gold-bright); }
 .docs-toc { position: sticky; top: 26px; display: flex; flex-direction: column; gap: 1px; padding: 18px 16px; border: 1px solid var(--border-color); border-radius: 11px; background: var(--bg-card); }
 .docs-toc-title { margin-bottom: 9px; color: var(--text-muted); font-size: 8px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase; }
 .docs-toc a { padding: 5px 0; color: var(--text-muted); font-size: 10px; text-decoration: none; transition: color .16s; }
