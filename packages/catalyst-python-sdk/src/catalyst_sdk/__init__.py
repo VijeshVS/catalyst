@@ -1,21 +1,23 @@
 """
 Catalyst Python SDK.
 
-A zero-latency, in-memory feature flag client. Fetch the bootstrap snapshot once,
-then evaluate flags locally with no network access per call.
+A feature flag client that reads your environment snapshot as it evaluates.
+The hosted API is used by default; pass `host=` to point somewhere else.
 
     from catalyst_sdk import CatalystClient
 
     client = CatalystClient(
         sdk_key="cp_prod_a1b2c3d4e5f6g7h8i9j0k1",
         project_id="7c9e6679-7425-40de-944b-e07fc1f90ae7",
-        host="http://localhost:8000",
         env="prod",
     )
-    client.start_auto_refresh(interval=30)
 
     client.is_enabled("ai-assistant", user_id="user_123",
                       attributes={"email": "alice@acme.com"})
+
+Each check sends a conditional request, so an unchanged environment costs a 304
+with no body, and the decision itself is made locally. Pass
+`refresh_on_evaluate=False` to evaluate purely from memory instead.
 """
 
 from .client import CatalystClient
@@ -39,15 +41,20 @@ from .evaluator import (
 from .hashing import get_user_bucket, murmur3_32
 from .snapshot import FlagSnapshot, Snapshot
 from .transport import (
+    DEFAULT_HOST,
+    HOST_ENV_VAR,
     AuthorizationError,
     BootstrapError,
     BootstrapTransport,
     ConfigurationError,
+    resolve_host,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
+    "DEFAULT_HOST",
+    "HOST_ENV_VAR",
     "AuthorizationError",
     "BootstrapError",
     "BootstrapTransport",
@@ -73,4 +80,5 @@ __all__ = [
     "match_rule",
     "murmur3_32",
     "normalize_operator",
+    "resolve_host",
 ]

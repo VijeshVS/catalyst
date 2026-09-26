@@ -55,6 +55,54 @@ class FakeTransport:
         self.closed = True
 
 
+class FakeResponse:
+    """The subset of `httpx.Response` the transport actually reads."""
+
+    def __init__(
+        self,
+        status_code: int = 200,
+        payload: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        text: str = "",
+    ) -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.headers = headers or {}
+        self.text = text
+
+    def json(self) -> Dict[str, Any]:
+        if self._payload is None:
+            raise ValueError("no json body")
+        return self._payload
+
+
+class RecordingHttp:
+    """
+    Stands in for `httpx.Client` so tests can assert on the requests the SDK
+    actually sends, including which host it defaulted to.
+    """
+
+    def __init__(
+        self,
+        payload: Optional[Dict[str, Any]] = None,
+        etag: str = 'W/"p1:prod:1"',
+    ) -> None:
+        self.payload = payload if payload is not None else default_payload()
+        self.etag = etag
+        self.requests: List[Dict[str, Any]] = []
+        self.closed = False
+
+    def get(self, url, params=None, headers=None):
+        headers = dict(headers or {})
+        self.requests.append({"url": url, "params": dict(params or {}), "headers": headers})
+        if headers.get("If-None-Match") == self.etag:
+            return FakeResponse(304, headers={"ETag": self.etag})
+        return FakeResponse(200, self.payload, headers={"ETag": self.etag})
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def default_payload() -> Dict[str, Any]:
     """A snapshot exercising every evaluation branch."""
     return {
@@ -132,6 +180,11 @@ def transport() -> FakeTransport:
 
 
 @pytest.fixture
+def http() -> RecordingHttp:
+    return RecordingHttp()
+
+
+@pytest.fixture
 def make_client(transport, tmp_path):
     """Builds a client wired to the fake transport and an isolated cache dir."""
     from catalyst_sdk import CatalystClient
@@ -159,6 +212,8 @@ def make_client(transport, tmp_path):
         # each test assert only the refreshes it triggers itself.
         client._refresh_count = 0
         client._not_modified_count = 0
+        client._next_attempt_at = 0.0
+        client._last_error = None
         created.append(client)
         return client
 

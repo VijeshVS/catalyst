@@ -6,7 +6,7 @@ Environment lifecycle business logic.
   in every environment of its project.
 - Cache version invalidation: the bootstrap ETag is derived from
   `Environment.version`, so every mutation that changes an environment's
-  flag snapshot must bump that counter.
+  flag snapshot must bump that counter, which also evicts the Redis snapshot.
 """
 from typing import Iterable, Optional
 
@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Environment, Flag, FlagEnvState
+from app.services.snapshots import invalidate_env_snapshots
 
 STANDARD_ENVIRONMENTS: tuple[str, ...] = ("dev", "staging", "prod")
 
@@ -83,14 +84,23 @@ async def bump_environment_versions(
 ) -> None:
     """
     Increments the cache version of a project's environments so that SDK
-    clients polling `/bootstrap` with `If-None-Match` receive a fresh snapshot.
+    clients polling `/bootstrap` with `If-None-Match` receive a fresh snapshot,
+    and drops the matching Redis snapshot entries.
 
     When `env_names` is omitted, every environment of the project is bumped.
+
+    This is the single invalidation hook for environment snapshots: every
+    mutation that changes flag state or targeting rules routes through here, so
+    the cached snapshot can never outlive the version it was built from.
     """
     stmt = select(Environment).where(Environment.project_id == project_id)
+    names: Optional[list[str]] = None
     if env_names is not None:
-        stmt = stmt.where(Environment.name.in_(list(env_names)))
+        names = list(env_names)
+        stmt = stmt.where(Environment.name.in_(names))
 
     res = await db.execute(stmt)
     for environment in res.scalars().all():
         environment.version += 1
+
+    await invalidate_env_snapshots(project_id, names)

@@ -8,12 +8,22 @@ decisions live in :mod:`catalyst_sdk.client`.
 
 from __future__ import annotations
 
+import os
+import time
 from dataclasses import dataclass
 from typing import Optional
 
 import httpx
 
 from .snapshot import Snapshot
+
+#: The hosted Catalyst API. The client talks to this out of the box, so a
+#: working setup needs only an SDK key and a project id.
+DEFAULT_HOST = "https://catalyst-api.onrender.com"
+
+#: Environment variable that overrides :data:`DEFAULT_HOST`, for deployments
+#: that run their own instance (staging, a self-hosted API, a port-forward).
+HOST_ENV_VAR = "CATALYST_HOST"
 
 
 class CatalystError(Exception):
@@ -30,6 +40,26 @@ class BootstrapError(CatalystError):
 
 class AuthorizationError(BootstrapError):
     """The SDK key or host was rejected."""
+
+
+def resolve_host(host: Optional[str] = None) -> str:
+    """
+    Picks the API origin, in order: the explicit argument, ``CATALYST_HOST``,
+    then :data:`DEFAULT_HOST`.
+
+    An explicit empty string is a configuration mistake rather than a request
+    for the default, so it raises instead of silently falling back.
+    """
+    if host is not None:
+        if not host.strip():
+            raise ConfigurationError(
+                f"host must not be empty. Pass a base URL, set {HOST_ENV_VAR}, "
+                f"or omit it to use {DEFAULT_HOST}."
+            )
+        return host.strip().rstrip("/")
+
+    from_env = os.environ.get(HOST_ENV_VAR, "").strip()
+    return from_env.rstrip("/") if from_env else DEFAULT_HOST
 
 
 @dataclass
@@ -53,15 +83,13 @@ class BootstrapTransport:
 
     def __init__(
         self,
-        host: str,
         sdk_key: str,
         project_id: str,
+        host: Optional[str] = None,
         env: str = "prod",
         timeout: float = 5.0,
         client: Optional[httpx.Client] = None,
     ) -> None:
-        if not host:
-            raise ConfigurationError("host is required, e.g. http://localhost:8000")
         if not sdk_key:
             raise ConfigurationError(
                 "sdk_key is required. Create one from the API Keys tab in the dashboard."
@@ -71,7 +99,7 @@ class BootstrapTransport:
                 "project_id is required because the bootstrap endpoint is project scoped."
             )
 
-        self.host = host.rstrip("/")
+        self.host = resolve_host(host)
         self.sdk_key = sdk_key
         self.project_id = project_id
         self.env = env
@@ -130,8 +158,6 @@ class BootstrapTransport:
             payload = response.json()
         except ValueError as exc:
             raise BootstrapError(f"bootstrap returned a non-JSON body: {exc}") from exc
-
-        import time
 
         return FetchResult(
             snapshot=Snapshot.from_payload(

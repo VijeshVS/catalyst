@@ -47,7 +47,7 @@ catalyst/
 │   │   ├── core/             # DB, Redis, settings, security/password/JWT helpers
 │   │   ├── models/           # SQLAlchemy data models
 │   │   ├── schemas/          # Pydantic request/response schemas
-│   │   ├── services/         # evaluator, environment lifecycle/versioning, targeting rules, API keys
+│   │   ├── services/         # evaluator, environment lifecycle/versioning, cached snapshots, targeting rules, API keys
 │   │   └── main.py           # FastAPI application entry point
 │   ├── migrations/           # documented one-time SQL transition for pre-auth Phase 1 DBs
 │   ├── tests/                # pytest suite (self-contained, SQLite-backed)
@@ -81,7 +81,9 @@ catalyst/
 
 * **FastAPI** application with an async lifespan for database table verification and Redis initialization.
 * **SQLAlchemy 2.0 async** is used for PostgreSQL access through `asyncpg`.
-* **Redis** is the async caching layer with connection retry and health checks.
+* **Redis** is the async caching layer with connection retry and health checks. `core/cache.py` owns the connection lifecycle *and* the JSON cache helpers (`cache_get_json`, `cache_set_json`, `cache_delete`), all of which swallow Redis errors and report a miss, so a cache outage is a slowdown rather than an outage.
+* **Environment snapshots are cached.** `services/snapshots.py` resolves the flags, states, and rules of one project environment, serving them from `catalyst:snapshot:<project>:<env>` when the cached entry's version matches the caller's `Environment.version` and rebuilding from PostgreSQL otherwise. `/bootstrap`, `/evaluate`, and `/batch-evaluate` all read through it and report which source answered in the `X-Catalyst-Cache` header.
+* Invalidation is centralized in `services/environments.py::bump_environment_versions`, which bumps `Environment.version` *and* evicts the cached entry. A stale hit is therefore not something the cache can produce on its own; `SNAPSHOT_CACHE_TTL` (default 60s) is only a backstop for a mutation that forgot to bump, and `SNAPSHOT_CACHE_ENABLED` turns the layer off entirely.
 * Database and Redis connectivity are exposed through `/healthz` and `/api/v1/healthz`.
 * API routes are versioned under `backend/app/api/v1/`; shared lookup helpers (`get_current_user`, `get_organization_or_404`, `get_project_or_404`, `get_environment_or_404`) live in `api/v1/deps.py`.
 * Business logic is isolated in `services/`: flag evaluation and the operator catalogue in `services/evaluator.py`, environment provisioning/state seeding/version invalidation in `services/environments.py`, targeting rule ordering/audit snapshots in `services/rules.py`, and SDK key issuance in `services/api_keys.py`.
@@ -179,8 +181,8 @@ Evaluation follows the implemented evaluator logic:
 
 ### Bootstrap / Caching
 
-* `/bootstrap` provides the full SDK snapshot for a **project environment**.
-* Supports **ETag-based conditional requests**; matching `If-None-Match` requests return `304 Not Modified` with the ETag echoed back.
+* `/bootstrap` provides the full SDK snapshot for a **project environment**, read through the Redis snapshot cache.
+* Supports **ETag-based conditional requests**; matching `If-None-Match` requests return `304 Not Modified` with the ETag echoed back, before the snapshot body is loaded at all.
 * The ETag derives from the project environment's `Environment.version`, which is incremented by every mutation that changes that snapshot (flag creation, rollout or kill-switch updates). Mutations in one project never invalidate another project's ETag.
 * Authenticated bootstrap responses use private cache headers.
 * **SDK Authentication**: The `/bootstrap` and `/evaluate` endpoints accept either a Bearer token (for users) or an `X-SDK-Key` header (for SDK clients). SDK keys are scoped to their project and can only access resources within that project.
@@ -212,7 +214,7 @@ Evaluation follows the implemented evaluator logic:
 * Built with **React + Vite + TypeScript** and **React Router v6**.
 * `main.tsx` wraps the route tree with `BrowserRouter` and `AuthProvider`.
 * `App.tsx` is a route table: public landing/auth routes, the public SDK documentation page (`/docs`), protected `/app/**`, nested project routes, and future-phase placeholders.
-* `DocsPage.tsx` is the in-app SDK reference at `/docs` (public, linked from the landing page hero and footer). It documents the Python SDK with 12 sections, copyable code blocks (`CodeBlock.tsx`), and configuration / operator / error tables. Content is kept in sync with the SDK README by hand.
+* `DocsPage.tsx` is the in-app SDK reference at `/docs` (public, linked from the landing page hero and footer). It documents the Python SDK with 14 sections, copyable code blocks (`CodeBlock.tsx`), and configuration / operator / error tables, and has a **search box** in the sidebar (Go button, match count, Escape to clear) that filters the table of contents. Content is kept in sync with the SDK README by hand.
 * `AuthContext` restores an in-memory access token from a localStorage refresh token, exposes login/register/logout, and redirects protected routes to `/login`.
 * `api.ts` attaches bearer tokens, shares a single refresh request, retries protected requests once after a `401`, and emits an auth-expired event when refresh fails. Access tokens stay in memory; refresh tokens use localStorage as a documented MVP tradeoff (not httpOnly).
 * `WorkspaceContext` owns authenticated organization/project summaries, last-valid organization persistence, and organization/project creation.
@@ -220,6 +222,8 @@ Evaluation follows the implemented evaluator logic:
 * Persistent `AppShell`/`Sidebar` provides organization switching and project navigation, plus a Documentation link out to the public `/docs` SDK reference so it is reachable from every `/app/**` route. The global header contains only Catalyst branding, health status, and the user menu; organization/project/environment navigation lives in the sidebar/project header.
 * Extracted reusable components include `Sidebar`, `FlagCard`, `KillSwitchButton`, `RolloutSlider`, `RuleBuilder`, `EvalPlayground`, and `EnvBadge`, plus auth/layout/flag-creation components.
 * Rule conditions are built by picking from the attribute catalogue rather than typed: the attribute is a grouped select, the operator list is filtered per attribute, and the value control is derived from the attribute's kind (boolean toggle, enum select, numeric input, or token chips for `in`/`not_in`). `RuleBuilder` also renders a live match preview of the whole rule chain against the playground context.
+* `frontend/src/lib/docsSearch.ts` owns the docs search index and matching (`searchSections`, `normalizeQuery`, `matchCount`) over each section's title, summary, and keywords, so the rules are unit tested without rendering the page.
+* `RolloutSlider` is a debounced control: the thumb moves on a local draft, the mutation is committed after `debounceMs` (default 400ms) and flushed immediately on pointer release, key release, or blur, so a drag is one `PATCH` instead of one per pixel. It shows a "saving" indicator while an edit is in flight, and `useProject.updateRollout` applies the value optimistically under a per-flag/per-environment sequence number so a slow response cannot overwrite a newer edit.
 * `frontend/src/lib/targeting.ts` owns the operator catalogue, the shared value coercion used by both rule conditions and playground attributes, list-token splitting/joining, draft validation, and attribute-input parsing (`key=value` lines or JSON).
 * `frontend/src/lib/attributeCatalog.ts` owns the preset attribute catalogue (grouped, with value kind, sensible operators, enum options, and example values) and the client-side mirror of the evaluator (`previewConditionMatch` / `previewRuleMatch`) that powers the builder's match preview. The server remains the source of truth for what is actually served; the preview is advisory only.
 * Existing feature flag functionality is preserved on the new pages: kill switch, rollout slider, evaluation playground, flag creation slide-over, custom environment management, and cache version display.
@@ -230,9 +234,12 @@ Evaluation follows the implemented evaluator logic:
 * Releases are automated by `.github/workflows/publish-sdk.yml`: it runs on pushes to `main` that touch the package, runs the SDK and parity suites, then publishes if the `pyproject.toml` version is new on PyPI. Auth is PyPI Trusted Publishing (OIDC), so no token is stored in the repo. To release, bump the version and merge.
 * `hashing.py` vendors MurmurHash3 x86_32 so sticky bucketing needs no native extension. It is verified against the real `mmh3` library and against the server's `get_user_bucket()`.
 * `evaluator.py` mirrors `app/services/evaluator.py`: kill switch → rules by ascending priority → percentage rollout → default. Operator aliases (`eq`, `gt`, `notExists`, …) are accepted and normalized.
-* `client.py` fetches `/api/v1/bootstrap` in the constructor and then **never performs I/O during evaluation**. Snapshot swaps are a single attribute assignment, so readers always see a consistent view.
-* Refreshes are conditional (`If-None-Match`), so an unchanged environment costs a `304` with no body. `start_auto_refresh(interval, on_error)` runs a daemon thread; a failed refresh keeps serving the last good snapshot.
-* Failure policy: only `AuthorizationError` propagates, since a rejected or revoked key will not fix itself. Everything else degrades to the configured `default_value` (`False` by default).
+* `client.py` **reads as it evaluates**: construction performs no I/O, and every check makes a conditional request before deciding locally. This is what makes a dashboard toggle visible on the next check. Snapshot swaps are a single attribute assignment, so readers always see a consistent view.
+* Reads are conditional (`If-None-Match`), so an unchanged environment costs a `304` with no body, and the server answers them from Redis. The check itself is still sub-millisecond; `test_evaluation_is_sub_millisecond` asserts the decision cost with `refresh_on_evaluate=False`.
+* `host` defaults to the deployed API (`transport.DEFAULT_HOST`), overridable per client with `host=` or per process with `CATALYST_HOST`; the argument beats the variable. An explicitly empty `host` is a `ConfigurationError` rather than a silent fallback.
+* Concurrency and failure behaviour on the read path: a `_read_lock` makes concurrent checks collapse into a single request (single-flight), a failed read sets a `failure_backoff` window (default 5s) so an unreachable API costs one timeout per window instead of one per check, and a first read that fails falls back to the disk cache before `default_value`.
+* `refresh_on_evaluate=False` restores in-memory-only evaluation for callers who want no I/O on the request path; `start_auto_refresh(interval, on_error)` then becomes the way to stay current. `offline=True` implies it.
+* Failure policy: an explicit `refresh()` raises `AuthorizationError`, since a rejected key will not fix itself. The implicit read inside `evaluate()`/`is_enabled()` absorbs it, because a flag check inside someone else's request must not become a 500. `raise_on_error=True` makes reads propagate too.
 * The last good snapshot is persisted under `~/.cache/catalyst` (`CATALYST_CACHE_DIR` overrides) with an atomic write-then-rename, so a cold start survives an unreachable API. `cache_path=False` disables it.
 * `backend/tests/test_sdk_parity.py` is a **differential suite**: it fuzzes the server evaluator and the SDK evaluator with identical inputs and requires identical values, reasons, and rule ids. Run it with the backend suite. Any change to evaluation semantics on either side should keep this green.
 
@@ -347,6 +354,7 @@ Current backend coverage includes:
 * Custom environment management (validation, duplicates, seeding of flag states)
 * Strict project scoping and project isolation (flags, evaluate, bootstrap, audit)
 * Bootstrap ETag scoping and environment version invalidation (304 → 200 on mutation)
+* Redis snapshot caching: cache hit/miss reporting, per-environment isolation, version-based invalidation on flag/state/rule mutations, `/evaluate` reading through the same cache, and degradation when Redis is absent, broken, or holding an undecodable value
 * Registration/login/refresh/me, password validation/hashing, auth rate limiting
 * Cross-user organization/project/flag authorization and audit attribution
 * API Key management (creation, listing, revocation)
@@ -354,7 +362,7 @@ Current backend coverage includes:
 * Project-scoped SDK access to /bootstrap and /evaluate endpoints
 * Server/SDK evaluation parity (differential fuzz over operators, precedence, and bucketing)
 
-The suite reports **56 tests passing**.
+The suite reports **71 tests passing**.
 
 The Python SDK has its own self-contained suite in `packages/catalyst-python-sdk`:
 
@@ -362,13 +370,13 @@ The Python SDK has its own self-contained suite in `packages/catalyst-python-sdk
 cd packages/catalyst-python-sdk && uv run --with pytest --with mmh3 pytest
 ```
 
-It reports **65 tests passing** and needs no network or running services.
+It reports **87 tests passing** and needs no network or running services.
 
 Frontend checks:
 
 ```bash
 cd frontend
-npm run test       # routing, auth-aware API client, targeting helpers, and rule builder Vitest tests
+npm run test       # routing, auth-aware API client, targeting helpers, rule builder, rollout slider, and docs search Vitest tests
 npm run lint
 npm run build
 ```
@@ -377,7 +385,7 @@ npm run build
 
 Automated on pull requests targeting `main` and pushes to `main` via `.github/workflows/ci.yml`:
 
-* **`backend-tests`**: Runs on Python 3.12 with `uv` (`uv run pytest` - all 39 SQLite-backed unit and integration tests).
+* **`backend-tests`**: Runs on Python 3.12 with `uv` (`uv run pytest` - all SQLite-backed unit and integration tests, with a fake Redis standing in for the cache).
 * **`frontend-checks`**: Runs on Node 22 (`npm ci`, `npm run test`, `npm run lint`, `npm run build`).
 * **`sdk-tests`**: Runs on Python 3.12 — the SDK suite, a `uv build` wheel check, and the server/SDK parity suite inside the backend environment.
 * **`Publish SDK`**: On pushes to `main` touching `packages/catalyst-python-sdk/**`, re-runs the SDK and parity suites and publishes to PyPI when the version is new. Requires a one-time Trusted Publisher config on pypi.org (owner `VijeshVS`, repo `catalyst`, workflow `publish-sdk.yml`, environment `pypi`).

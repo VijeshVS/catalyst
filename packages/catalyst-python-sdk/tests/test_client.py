@@ -1,11 +1,13 @@
-"""Client tests: fetch-on-load, ETag polling, safe defaults, refresh, cache."""
+"""Client tests: read-per-evaluation, ETag polling, safe defaults, cache."""
 
 from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 
+import httpx
 import pytest
 
 from catalyst_sdk import (
@@ -125,16 +127,8 @@ def test_get_all_evaluates_every_flag(make_client):
     assert set(values) == set(client.flag_keys())
 
 
-def test_evaluation_never_touches_the_network(make_client, transport):
-    client = make_client()
-    transport.calls.clear()
-    for _ in range(50):
-        client.is_enabled("ai-assistant", "u1", {"email": "a@acme.com"})
-    assert transport.calls == [], "is_enabled must be purely local"
-
-
 def test_evaluation_is_sub_millisecond(make_client):
-    client = make_client()
+    client = make_client(refresh_on_evaluate=False)
     result = client.evaluate("ai-assistant", "user_123", {"email": "dev@acme.com"})
     start = time.perf_counter()
     iterations = 2000
@@ -142,7 +136,235 @@ def test_evaluation_is_sub_millisecond(make_client):
         client.evaluate("ai-assistant", f"user_{i}", {"email": "dev@acme.com", "plan": "pro"})
     per_call_ms = (time.perf_counter() - start) / iterations * 1000
     assert result.reason == REASON_RULE_MATCH
-    assert per_call_ms < 1.0, f"evaluation took {per_call_ms:.3f}ms per call"
+    assert per_call_ms < 1.0, f"the decision took {per_call_ms:.3f}ms per call"
+
+
+# ---------------------------------------------------------------------------
+# Read-per-evaluation
+# ---------------------------------------------------------------------------
+def test_construction_does_not_read(make_client, transport):
+    """A client is free to build: nothing is fetched until a flag is checked."""
+    transport.calls.clear()
+    client = make_client()
+    assert client.is_ready is True, "the fixture primes the snapshot"
+    transport.calls.clear()
+
+    fresh = CatalystClient(
+        sdk_key="cp_prod_x",
+        project_id="p1",
+        host="http://catalyst.invalid",
+        cache_path=False,
+    )
+    assert fresh.is_ready is False
+    assert fresh.version == 0
+    assert fresh.flag_keys() == []
+    fresh.close()
+
+
+def test_every_evaluation_issues_a_conditional_read(make_client, transport):
+    client = make_client()
+    transport.calls.clear()
+
+    client.is_enabled("ai-assistant", "u1", {"email": "a@acme.com"})
+    client.is_enabled("new-checkout", "u1", {})
+
+    assert transport.calls == ['W/"p1:prod:1"', 'W/"p1:prod:1"']
+    assert client.stats["not_modified"] == 2, "an unchanged environment costs a 304"
+    assert client.version == 7, "a 304 must not disturb the snapshot"
+
+
+def test_evaluation_picks_up_a_changed_snapshot(make_client, transport):
+    client = make_client()
+    assert client.is_enabled("new-checkout", "user_123", {}) is True  # 50% rollout
+
+    payload = default_payload()
+    payload["version"] = 9
+    payload["flags"]["new-checkout"]["percentage"] = 100
+    transport.payload = payload
+    transport.etag = 'W/"p1:prod:9"'
+
+    assert client.is_enabled("new-checkout", "user_123", {}) is True
+    assert client.version == 9
+    assert client.is_ready is True
+
+
+def test_refresh_on_evaluate_false_stays_in_memory(make_client, transport):
+    client = make_client(refresh_on_evaluate=False)
+    transport.calls.clear()
+
+    for _ in range(50):
+        client.is_enabled("ai-assistant", "u1", {"email": "a@acme.com"})
+    assert transport.calls == [], "opt-out mode must be purely local"
+
+    # Freshness is then driven explicitly.
+    assert client.refresh() is False
+    assert transport.calls == ['W/"p1:prod:1"']
+
+
+def test_get_all_reads_once_for_every_flag(make_client, transport):
+    client = make_client()
+    transport.calls.clear()
+
+    values = client.get_all("u1", {"email": "dev@acme.com"})
+
+    assert set(values) == set(client.flag_keys())
+    assert len(transport.calls) == 1, "a bulk read must not cost one request per flag"
+
+
+def test_offline_client_never_reads_on_evaluation(tmp_path):
+    client = CatalystClient(
+        sdk_key="cp_prod_x",
+        project_id="p1",
+        host="http://catalyst.invalid",
+        cache_path=False,
+        offline=True,
+    )
+    assert client.refresh_on_evaluate is False
+    assert client.is_enabled("anything") is False
+    client.close()
+
+
+def test_concurrent_evaluations_collapse_into_one_read(make_client, transport, monkeypatch):
+    client = make_client()
+    transport.calls.clear()
+    # Hold the first read open long enough that every other thread piles up
+    # behind the read lock, which is the situation single-flight exists for.
+    original = transport.bootstrap
+
+    def slow_bootstrap(etag=None):
+        time.sleep(0.05)
+        return original(etag)
+
+    monkeypatch.setattr(transport, "bootstrap", slow_bootstrap)
+    barrier = threading.Barrier(8, timeout=5)
+    results: list = []
+
+    def check() -> None:
+        barrier.wait()
+        results.append(client.is_enabled("ai-assistant", "u1", {"email": "a@acme.com"}))
+
+    threads = [threading.Thread(target=check) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert len(results) == 8
+    assert all(results)
+    assert len(transport.calls) == 1, "a stampede must not become eight requests"
+
+
+# ---------------------------------------------------------------------------
+# Read failures
+# ---------------------------------------------------------------------------
+def test_a_failed_read_keeps_serving_the_last_good_snapshot(make_client, transport):
+    client = make_client()
+    transport.calls.clear()
+    transport.raise_next = BootstrapError("connection reset")
+
+    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
+    assert "connection reset" in (client.last_error or "")
+    assert client.version == 7
+
+
+def test_reads_back_off_after_a_failure(make_client, transport):
+    client = make_client(failure_backoff=30.0)
+    transport.calls.clear()
+    transport.raise_next = BootstrapError("connection reset")
+
+    client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"})
+    assert transport.calls == ['W/"p1:prod:1"']
+
+    # The window is open, so further checks are served without retrying, which
+    # is what stops an unreachable API from adding its timeout to every call.
+    for _ in range(5):
+        assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
+    assert transport.calls == ['W/"p1:prod:1"'], "the backoff window must suppress retries"
+
+    # An explicit refresh is a deliberate act, so it ignores the window.
+    client._next_attempt_at = 0.0
+    client.refresh()
+    assert len(transport.calls) == 2
+
+
+def test_a_successful_read_ends_the_backoff_window(make_client, transport):
+    client = make_client(failure_backoff=30.0)
+    transport.calls.clear()
+    transport.raise_next = BootstrapError("connection reset")
+    client.is_enabled("ai-assistant", "u1", {})
+
+    client._next_attempt_at = 0.0
+    assert client.refresh() is False
+    client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"})
+    assert len(transport.calls) == 3, "a healthy API must be polled again"
+
+
+def test_a_rejected_key_does_not_break_evaluation(make_client, transport):
+    """A revoked key must not turn every flag check into an exception."""
+    client = make_client()
+    transport.calls.clear()
+    transport.raise_next = AuthorizationError("HTTP 401")
+
+    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
+    assert client.last_error == "authorization failed"
+
+    # An explicit refresh still raises, because that is where a bad key is fixed.
+    client._next_attempt_at = 0.0
+    transport.raise_next = AuthorizationError("HTTP 401")
+    with pytest.raises(AuthorizationError):
+        client.refresh()
+
+
+def test_raise_on_error_propagates_out_of_evaluation(make_client, transport):
+    client = make_client(raise_on_error=True)
+    transport.calls.clear()
+    transport.raise_next = BootstrapError("api is down")
+
+    with pytest.raises(BootstrapError, match="api is down"):
+        client.is_enabled("ai-assistant", "u1", {})
+
+
+def test_first_read_failure_falls_back_to_defaults(tmp_path):
+    client = CatalystClient(
+        sdk_key="cp_prod_x",
+        project_id="p1",
+        host="http://catalyst.invalid",
+        cache_path=False,
+        http_client=_ExplodingHttp(),
+    )
+    assert client.is_enabled("new-checkout", "user_123", {}) is False
+    assert client.is_ready is False
+    client.close()
+
+
+def test_first_read_failure_falls_back_to_the_disk_cache(tmp_path):
+    from catalyst_sdk import Snapshot
+
+    cache = tmp_path / "boot.json"
+    with open(cache, "w", encoding="utf-8") as handle:
+        json.dump(Snapshot.from_payload(default_payload(), etag='W/"p1:prod:7"').to_dict(), handle)
+
+    client = CatalystClient(
+        sdk_key="cp_prod_x",
+        project_id="p1",
+        host="http://catalyst.invalid",
+        cache_path=str(cache),
+        http_client=_ExplodingHttp(),
+    )
+    # No snapshot yet, so the read fails and the cached one is used instead.
+    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
+    assert client.version == 7
+    client.close()
+
+
+class _ExplodingHttp:
+    """An HTTP client whose every request fails, standing in for a dead API."""
+
+    def get(self, *args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    def close(self) -> None:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +437,7 @@ def test_failed_refresh_keeps_serving_the_last_good_snapshot(make_client, transp
 def test_authorization_failure_always_raises(make_client, transport):
     """A bad key will not fix itself, so it must not be swallowed."""
     client = make_client()
+    transport.calls.clear()
     transport.raise_next = AuthorizationError("HTTP 401")
     with pytest.raises(AuthorizationError):
         client.refresh()

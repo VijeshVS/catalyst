@@ -1,10 +1,12 @@
 # Catalyst Python SDK
 
-A zero-latency, in-memory feature flag client for the [Catalyst](https://github.com/VijeshVS/catalyst) platform.
+A feature flag client for the [Catalyst](https://github.com/VijeshVS/catalyst) platform that
+**reads the current snapshot as it evaluates** and decides locally.
 
-Fetch the bootstrap snapshot once, then evaluate flags **locally with no network
-access per call**. Typical `is_enabled()` latency is a couple of microseconds,
-against a budget of 1 ms.
+Each check is a conditional request, so an unchanged environment costs a `304`
+with no body, and a toggle you flip in the dashboard is picked up on the next
+check. The decision itself never leaves the process. The client talks to the
+hosted API by default, so a working setup needs only a key and a project id.
 
 ```python
 from catalyst_sdk import CatalystClient
@@ -12,7 +14,6 @@ from catalyst_sdk import CatalystClient
 client = CatalystClient(
     sdk_key="cp_prod_a1b2c3d4e5f6g7h8i9j0k1",   # API Keys tab in the dashboard
     project_id="7c9e6679-7425-40de-944b-e07fc1f90ae7",
-    host="http://localhost:8000",
     env="prod",
 )
 
@@ -48,39 +49,78 @@ Only runtime dependency is [`httpx`](https://www.python-httpx.org/). Requires Py
 |---|---|---|
 | `sdk_key` | yes | An SDK key from the dashboard's **API Keys** tab, sent as `X-SDK-Key`. |
 | `project_id` | yes | The bootstrap endpoint is strictly project scoped. |
-| `host` | no | Defaults to `http://localhost:8000`. |
+| `host` | no | Base URL of the Catalyst API. Omit it for the hosted API. |
 | `env` | no | Snapshot to load. Defaults to `prod`. |
 | `timeout` | no | Per-request HTTP timeout, seconds. Default `5.0`. |
-| `default_value` | no | Served for an unknown flag or before the first load. Default `False`. |
-| `offline` | no | Skip the API and load only from the disk cache. |
+| `default_value` | no | Served for an unknown flag or when no snapshot can be loaded. Default `False`. |
+| `refresh_on_evaluate` | no | Read the snapshot as part of each check. Default `True`. |
+| `failure_backoff` | no | Seconds to stop retrying after a failed read. Default `5.0`. |
+| `offline` | no | Skip the API and load only from the disk cache. Implies `refresh_on_evaluate=False`. |
 | `cache_path` | no | `None`/`True` uses `~/.cache/catalyst`, or a path you choose. `False` disables it. |
-| `raise_on_error` | no | Re-raise refresh errors instead of keeping the last good snapshot. |
+| `raise_on_error` | no | Let read failures raise out of evaluation instead of degrading. |
 
 `project_id` is worth calling out: `/api/v1/bootstrap` takes it as a query
 parameter, so the SDK cannot infer it from the key.
 
+### Choosing the API host
+
+| Source | Precedence |
+|---|---|
+| `host=` argument | highest |
+| `CATALYST_HOST` environment variable | middle |
+| hosted API (`catalyst_sdk.DEFAULT_HOST`) | default |
+
+```python
+# Staging, a self-hosted instance, or a tunnel to your laptop.
+client = CatalystClient(..., host="https://catalyst-api.onrender.com")
+```
+
+## Freshness
+
+By default every check reads, so there is no propagation delay to tune. Two
+knobs matter when that is not what you want:
+
+```python
+# Evaluate from memory only; drive freshness yourself.
+client = CatalystClient(..., refresh_on_evaluate=False)
+client.start_auto_refresh(interval=30)
+
+# A dead API should not add its timeout to every check.
+client = CatalystClient(..., failure_backoff=15.0)
+```
+
+* Concurrent checks collapse into a single read, so a thread pool does not
+  stampede the API.
+* After a failure, reads are held off for `failure_backoff` seconds, so an
+  unreachable API costs one timeout per window rather than one per request.
+* `get_all()` reads once regardless of how many flags it holds.
+
 ## How it works
 
 ```
-                 ┌──────────────────────────────┐
-   startup  ───▶ │ GET /api/v1/bootstrap        │  200 → replace snapshot
-                 │ If-None-Match: <last etag>   │  304 → keep snapshot
-                 └──────────────────────────────┘
-                                    │
-                          background refresh thread
-                                    │
-   is_enabled()  ──▶  in-memory snapshot  ──▶  no I/O
+   is_enabled("new-checkout", user_id="u1")
+        │
+        ├──▶  GET /api/v1/bootstrap
+        │      If-None-Match: <last etag>
+        │        304            → snapshot unchanged, no body
+        │        200            → replace snapshot
+        │
+        └──▶  local decision against the snapshot  →  bool
 ```
 
-* **Fetch on load.** The snapshot is fetched in the constructor.
-* **Conditional refresh.** Every refresh sends `If-None-Match`, so an unchanged
+* **No startup fetch.** Constructing a client performs no I/O, so it cannot fail
+  on a cold or unreachable API. The first check is what reads.
+* **Conditional read.** Every check sends `If-None-Match`, so an unchanged
   environment costs a `304` with no body. The ETag derives from the project's
   environment version, which every snapshot-affecting mutation bumps.
 * **Atomic swap.** A single attribute assignment replaces the snapshot, so
   evaluation never sees a half-updated view.
-* **Degrades, never throws.** A failed refresh keeps serving the last good
-  snapshot. Only `AuthorizationError` propagates, because a rejected key will
-  not fix itself.
+* **Cheap on the server.** The API answers from a Redis snapshot keyed by
+  environment version, so the read does not re-query every flag, state and rule.
+  Redis being unavailable only makes it slower.
+* **Degrades, never throws.** A failed read keeps serving the last good
+  snapshot, then the disk cache, then `default_value`. An explicit `refresh()`
+  still raises `AuthorizationError`, because a rejected key will not fix itself.
 
 ## Evaluation precedence
 
@@ -104,7 +144,7 @@ instead of raising.
 
 ### `is_enabled(flag_key, user_id="", attributes=None, default_value=None) -> bool`
 
-The hot path. Never performs I/O.
+The hot path: one conditional read, then a local decision.
 
 ### `evaluate(flag_key, ...) -> EvaluationResult`
 
@@ -132,7 +172,8 @@ Conditionally re-fetches. Returns `True` if a new snapshot was applied,
 ### `start_auto_refresh(interval=30.0, on_error=None) -> Thread`
 
 Daemon thread that calls `refresh()` on an interval. `on_error` receives every
-refresh failure, including ones that were safely absorbed.
+refresh failure, including ones that were safely absorbed. Only needed with
+`refresh_on_evaluate=False`; otherwise it is redundant with the per-check read.
 
 ```python
 client.start_auto_refresh(interval=15, on_error=lambda e: log.warning(e))
@@ -145,8 +186,8 @@ client.stop_auto_refresh()
 ```python
 client.is_ready      # bool  - a snapshot is loaded
 client.version       # int   - environment cache version
-client.flag_keys()   # list[str]
-client.stats         # dict  - refresh counters, etag, last error
+client.flag_keys()   # list[str]  (reads memory; read after a check or refresh)
+client.stats         # dict  - refresh counters, etag, host, last error
 client.last_error    # str | None
 ```
 
@@ -162,9 +203,9 @@ with CatalystClient(...) as client:
 ## Offline and disk cache
 
 The last good snapshot is written to `~/.cache/catalyst` (override the
-directory with `CATALYST_CACHE_DIR`) using an atomic write-then-rename. On a
-cold start with no network the SDK loads from there, so a restart keeps serving
-correct decisions.
+directory with `CATALYST_CACHE_DIR`) using an atomic write-then-rename. A read
+that fails falls back to it before giving up on `default_value`, so a cold start
+or a momentary outage keeps serving correct decisions.
 
 ```python
 client = CatalystClient(..., offline=True)   # cache only, no network
@@ -174,12 +215,14 @@ client = CatalystClient(..., offline=True)   # cache only, no network
 
 | Exception | Meaning |
 |---|---|
-| `ConfigurationError` | Missing `sdk_key` / `project_id` / `host`. Raised at construction. |
-| `AuthorizationError` | Key rejected or revoked. Always propagates. |
+| `ConfigurationError` | Missing `sdk_key` / `project_id`, or an empty `host`. Raised at construction. |
+| `AuthorizationError` | Key rejected or revoked. Propagates from `refresh()`; absorbed during evaluation. |
 | `BootstrapError` | Any other transport or protocol failure. Logged, and the previous snapshot keeps serving. Set `raise_on_error=True` to propagate. |
 
 Evaluation never raises. An unknown flag key, a missing snapshot, and a failed
-refresh all resolve to `default_value` (`False` unless configured otherwise).
+read all resolve to `default_value` (`False` unless configured otherwise) — a
+flag check inside someone else's request must not become a 500. Set
+`raise_on_error=True` when you would rather find out.
 
 ## Demo
 
@@ -189,8 +232,9 @@ checkout endpoint and explains its decisions.
 ```bash
 export CATALYST_SDK_KEY="cp_prod_..."
 export CATALYST_PROJECT_ID="<project uuid>"
-export CATALYST_HOST="http://localhost:8000"
 export CATALYST_ENV="prod"
+# Only when running against your own API:
+# export CATALYST_HOST="http://localhost:8000"
 
 python examples/fastapi_demo/app.py
 
