@@ -34,6 +34,7 @@ This workflow is triggered **only when the user asks to push code to GitHub**.
 * **Client routing:** React Router v6
 * **Infrastructure:** Docker Compose
 * **API:** REST, versioned under `/api/v1`
+* **SDK:** `catalyst-sdk` — standalone Python client, published from `packages/catalyst-python-sdk`
 
 ## Project Structure
 
@@ -51,12 +52,18 @@ catalyst/
 │   ├── tests/                # pytest suite (self-contained, SQLite-backed)
 │   └── pyproject.toml
 │
+├── packages/
+│   └── catalyst-python-sdk/
+│       ├── src/catalyst_sdk/   # client, evaluator, hashing, snapshot, transport
+│       ├── tests/              # SDK suite (self-contained, no network)
+│       └── examples/           # runnable FastAPI demo
+│
 ├── frontend/
 │   └── src/
 │       ├── auth/              # AuthContext, protected/public route wrappers
 │       ├── components/       # shell, sidebar, flag controls, rule builder, environment UI
 │       ├── lib/               # attribute catalogue + operator/coercion/preview helpers
-│       ├── pages/             # landing, onboarding, org/project, auth and future tabs
+│       ├── pages/             # landing, SDK docs (/docs), onboarding, org/project, auth tabs
 │       ├── workspace/         # WorkspaceContext and useProject project-data hook
 │       ├── App.tsx            # React Router route table
 │       ├── api.ts             # typed, auth-aware API client with refresh/retry
@@ -118,7 +125,7 @@ Evaluation follows the implemented evaluator logic:
 
 * **Emergency Kill Switch:** immediately returns the configured default value.
 * **Percentage Rollout:** deterministic Murmur3 hashing based on `flag_key:user_id`.
-* **Targeting Rules:** evaluates user attributes against configured conditions, first match by ascending `priority` wins.
+* **Targeting Rules:** evaluates user attributes against configured conditions, first match by ascending `priority` wins. `evaluate_flag()` sorts rules itself rather than trusting the caller, so the precedence contract holds for any input order and matches the Python SDK exactly.
 * Rollouts are sticky/deterministic for the same flag and evaluation user.
 
 ### Rule-Based Targeting (Phase 3)
@@ -203,17 +210,29 @@ Evaluation follows the implemented evaluator logic:
 
 * Built with **React + Vite + TypeScript** and **React Router v6**.
 * `main.tsx` wraps the route tree with `BrowserRouter` and `AuthProvider`.
-* `App.tsx` is a route table: public landing/auth routes, protected `/app/**`, nested project routes, and future-phase placeholders.
+* `App.tsx` is a route table: public landing/auth routes, the public SDK documentation page (`/docs`), protected `/app/**`, nested project routes, and future-phase placeholders.
+* `DocsPage.tsx` is the in-app SDK reference at `/docs` (public, linked from the landing page hero and footer). It documents the Python SDK with 12 sections, copyable code blocks (`CodeBlock.tsx`), and configuration / operator / error tables. Content is kept in sync with the SDK README by hand.
 * `AuthContext` restores an in-memory access token from a localStorage refresh token, exposes login/register/logout, and redirects protected routes to `/login`.
 * `api.ts` attaches bearer tokens, shares a single refresh request, retries protected requests once after a `401`, and emits an auth-expired event when refresh fails. Access tokens stay in memory; refresh tokens use localStorage as a documented MVP tradeoff (not httpOnly).
 * `WorkspaceContext` owns authenticated organization/project summaries, last-valid organization persistence, and organization/project creation.
 * `useProject(projectId)` owns flags, environments, active environment/query state, polling, playground evaluation (with context attributes), and flag/environment/rule mutations.
-* Persistent `AppShell`/`Sidebar` provides organization switching and project navigation. The global header contains only Catalyst branding, health status, and the user menu; organization/project/environment navigation lives in the sidebar/project header.
+* Persistent `AppShell`/`Sidebar` provides organization switching and project navigation, plus a Documentation link out to the public `/docs` SDK reference so it is reachable from every `/app/**` route. The global header contains only Catalyst branding, health status, and the user menu; organization/project/environment navigation lives in the sidebar/project header.
 * Extracted reusable components include `Sidebar`, `FlagCard`, `KillSwitchButton`, `RolloutSlider`, `RuleBuilder`, `EvalPlayground`, and `EnvBadge`, plus auth/layout/flag-creation components.
 * Rule conditions are built by picking from the attribute catalogue rather than typed: the attribute is a grouped select, the operator list is filtered per attribute, and the value control is derived from the attribute's kind (boolean toggle, enum select, numeric input, or token chips for `in`/`not_in`). `RuleBuilder` also renders a live match preview of the whole rule chain against the playground context.
 * `frontend/src/lib/targeting.ts` owns the operator catalogue, the shared value coercion used by both rule conditions and playground attributes, list-token splitting/joining, draft validation, and attribute-input parsing (`key=value` lines or JSON).
 * `frontend/src/lib/attributeCatalog.ts` owns the preset attribute catalogue (grouped, with value kind, sensible operators, enum options, and example values) and the client-side mirror of the evaluator (`previewConditionMatch` / `previewRuleMatch`) that powers the builder's match preview. The server remains the source of truth for what is actually served; the preview is advisory only.
 * Existing feature flag functionality is preserved on the new pages: kill switch, rollout slider, evaluation playground, flag creation slide-over, custom environment management, and cache version display.
+
+## Python SDK (`packages/catalyst-python-sdk`)
+
+* Package name `catalyst-sdk`, hatchling build, ships `py.typed`. Only runtime dependency is `httpx`.
+* `hashing.py` vendors MurmurHash3 x86_32 so sticky bucketing needs no native extension. It is verified against the real `mmh3` library and against the server's `get_user_bucket()`.
+* `evaluator.py` mirrors `app/services/evaluator.py`: kill switch → rules by ascending priority → percentage rollout → default. Operator aliases (`eq`, `gt`, `notExists`, …) are accepted and normalized.
+* `client.py` fetches `/api/v1/bootstrap` in the constructor and then **never performs I/O during evaluation**. Snapshot swaps are a single attribute assignment, so readers always see a consistent view.
+* Refreshes are conditional (`If-None-Match`), so an unchanged environment costs a `304` with no body. `start_auto_refresh(interval, on_error)` runs a daemon thread; a failed refresh keeps serving the last good snapshot.
+* Failure policy: only `AuthorizationError` propagates, since a rejected or revoked key will not fix itself. Everything else degrades to the configured `default_value` (`False` by default).
+* The last good snapshot is persisted under `~/.cache/catalyst` (`CATALYST_CACHE_DIR` overrides) with an atomic write-then-rename, so a cold start survives an unreachable API. `cache_path=False` disables it.
+* `backend/tests/test_sdk_parity.py` is a **differential suite**: it fuzzes the server evaluator and the SDK evaluator with identical inputs and requires identical values, reasons, and rule ids. Run it with the backend suite. Any change to evaluation semantics on either side should keep this green.
 
 ## Local Infrastructure
 
@@ -237,8 +256,11 @@ make dev-api
 # Start React frontend
 make dev-web
 
-# Run backend tests
+# Run backend tests (includes the server/SDK parity suite)
 make test
+
+# Run SDK tests
+make test-sdk
 ```
 
 Default development ports:
@@ -275,8 +297,17 @@ Current backend coverage includes:
 * API Key management (creation, listing, revocation)
 * SDK authentication via X-SDK-Key header
 * Project-scoped SDK access to /bootstrap and /evaluate endpoints
+* Server/SDK evaluation parity (differential fuzz over operators, precedence, and bucketing)
 
-The suite reports **39 tests passing**.
+The suite reports **56 tests passing**.
+
+The Python SDK has its own self-contained suite in `packages/catalyst-python-sdk`:
+
+```bash
+cd packages/catalyst-python-sdk && uv run --with pytest --with mmh3 pytest
+```
+
+It reports **65 tests passing** and needs no network or running services.
 
 Frontend checks:
 
@@ -293,4 +324,5 @@ Automated on pull requests targeting `main` and pushes to `main` via `.github/wo
 
 * **`backend-tests`**: Runs on Python 3.12 with `uv` (`uv run pytest` - all 39 SQLite-backed unit and integration tests).
 * **`frontend-checks`**: Runs on Node 22 (`npm ci`, `npm run test`, `npm run lint`, `npm run build`).
+* **`sdk-tests`**: Runs on Python 3.12 — the SDK suite, a `uv build` wheel check, and the server/SDK parity suite inside the backend environment.
 

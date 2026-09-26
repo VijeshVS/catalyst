@@ -63,3 +63,36 @@ jobs:
 
       - name: Verify production build
         run: npm run build
+
+  sdk-tests:
+    name: SDK Tests (Python 3.11/3.12 + parity)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/catalyst-python-sdk
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run SDK tests
+        run: uv run --with pytest --with mmh3 pytest
+
+      - name: Verify the package builds
+        run: uv build
+
+      # The differential suite imports the server's evaluator, so it runs in
+      # the backend's environment where `app` and `mmh3` are available.
+      - name: Run server/SDK parity tests
+        working-directory: backend
+        run: uv run pytest tests/test_sdk_parity.py

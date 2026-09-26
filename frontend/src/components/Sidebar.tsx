@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, useNavigate, useParams } from 'react-router-dom';
+import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 
 import { useWorkspace } from '../workspace/WorkspaceContext';
 
@@ -49,6 +49,13 @@ export function Sidebar() {
             <span className="sidebar-link-icon" aria-hidden="true">▦</span>
             <span>Projects</span>
           </NavLink>
+          {/* Documentation is a public route, so it leaves the app shell.
+              A <Link> still gives client-side navigation without a reload. */}
+          <Link to="/docs" className="sidebar-link">
+            <span className="sidebar-link-icon" aria-hidden="true">▤</span>
+            <span>Documentation</span>
+            <small className="sidebar-link-external" aria-hidden="true">↗</small>
+          </Link>
           {/* <NavLink
             to={activeOrgId && projectId ? `/app/orgs/${activeOrgId}/projects/${projectId}/settings` : '#'}
             className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''} ${!projectId ? 'disabled' : ''}`}
