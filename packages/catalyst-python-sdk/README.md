@@ -1,6 +1,6 @@
 # Catalyst Python SDK
 
-A zero-latency, in-memory feature flag client for the [Catalyst](../..) platform.
+A zero-latency, in-memory feature flag client for the [Catalyst](https://github.com/VijeshVS/catalyst) platform.
 
 Fetch the bootstrap snapshot once, then evaluate flags **locally with no network
 access per call**. Typical `is_enabled()` latency is a couple of microseconds,
@@ -24,7 +24,14 @@ if client.is_enabled("new-checkout", user_id="user_123",
 ## Install
 
 ```bash
-pip install catalyst-sdk
+pip install sdk-catalyst
+```
+
+The distribution is named **`sdk-catalyst`** (the `catalyst-sdk` name is taken on PyPI by an
+unrelated project), but the import name is unchanged:
+
+```python
+from catalyst_sdk import CatalystClient
 ```
 
 From a checkout:
@@ -33,7 +40,7 @@ From a checkout:
 uv sync            # or: pip install -e ".[dev]"
 ```
 
-Only runtime dependency is [`httpx`](https://www.python-httpx.org/).
+Only runtime dependency is [`httpx`](https://www.python-httpx.org/). Requires Python 3.11+.
 
 ## Configuration
 
@@ -210,6 +217,24 @@ Two layers guard correctness:
   ```bash
   cd backend && uv run pytest tests/test_sdk_parity.py
   ```
+
+## Releasing
+
+Releases are automated. `.github/workflows/publish-sdk.yml` runs on every push to `main` that
+touches this package, and publishes to PyPI if the version in `pyproject.toml` is new.
+
+To cut a release:
+
+1. Bump `version` in `pyproject.toml`
+2. Update `CHANGELOG` notes in the commit message
+3. Merge to `main`
+
+The workflow runs the SDK suite and the server parity suite **before** publishing, so a broken
+version never reaches PyPI. If the version already exists on PyPI the publish is skipped, which
+means a merge that only edits docs will not fail. Re-running a failed release is possible from the
+Actions tab via **Run workflow**.
+
+Publishing uses PyPI **Trusted Publishing** (OIDC), so no API token is stored in this repository.
 
 ## License
 

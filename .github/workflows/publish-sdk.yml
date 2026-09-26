@@ -1,0 +1,107 @@
+name: Publish SDK
+
+# Publishes packages/catalyst-python-sdk to PyPI whenever that package changes
+# on main. Uses PyPI Trusted Publishing (OIDC), so there is no long-lived
+# API token stored in this repository's secrets.
+#
+# One-time setup, required once per repository, on pypi.org:
+#   1. Create the project (or claim the name) at https://pypi.org/manage/account/publishing/
+#   2. Add a "GitHub" trusted publisher for owner=VijeshVS,
+#      repo=catalyst, workflow=publish-sdk.yml, environment=pypi
+#   3. Create a GitHub environment named "pypi" (optional, but it lets you
+#      require a manual approval before each release)
+#
+# A release happens when the version in pyproject.toml is bumped and merged to
+# main. Re-publishing an existing version is a no-op, so a merge that does not
+# touch the version will not fail the build.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/catalyst-python-sdk/**"
+  # Allows a manual re-run, e.g. after fixing a failed release.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Test, then publish to PyPI
+    runs-on: ubuntu-latest
+    # Named environment lets you gate releases behind a manual approval.
+    environment: pypi
+    defaults:
+      run:
+        working-directory: packages/catalyst-python-sdk
+    permissions:
+      # Required for PyPI Trusted Publishing (OIDC token exchange).
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Never publish a version that does not pass its tests.
+      - name: Run SDK tests
+        run: uv run --with pytest --with mmh3 pytest
+
+      # The SDK evaluates locally, so it must stay identical to the server.
+      - name: Run server/SDK parity tests
+        working-directory: backend
+        run: uv run pytest tests/test_sdk_parity.py
+
+      - name: Resolve version
+        id: pkg
+        run: |
+          version="$(uv run --no-project python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building sdk-catalyst $version"
+
+      # PyPI rejects a re-upload of an existing version. Skip instead of
+      # failing, so merging an unrelated SDK doc change does not break main.
+      - name: Check whether the version is already published
+        id: exists
+        run: |
+          if curl -sf -o /dev/null "https://pypi.org/pypi/sdk-catalyst/${{ steps.pkg.outputs.version }}/json"; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::sdk-catalyst ${{ steps.pkg.outputs.version }} is already on PyPI. Skipping publish. Bump the version in pyproject.toml to release."
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build distributions
+        if: steps.exists.outputs.already_published == 'false'
+        run: uv build
+
+      - name: Publish to PyPI
+        if: steps.exists.outputs.already_published == 'false'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Signed attestations proving the artifact came from this workflow.
+          attestations: true
+          print-hash: true
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.exists.outputs.already_published }}" = "true" ]; then
+            echo "Skipped: sdk-catalyst ${{ steps.pkg.outputs.version }} already published." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Published sdk-catalyst ${{ steps.pkg.outputs.version }} to PyPI." >> "$GITHUB_STEP_SUMMARY"
+            echo "https://pypi.org/project/sdk-catalyst/${{ steps.pkg.outputs.version }}/" >> "$GITHUB_STEP_SUMMARY"
+          fi

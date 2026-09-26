@@ -34,7 +34,7 @@ This workflow is triggered **only when the user asks to push code to GitHub**.
 * **Client routing:** React Router v6
 * **Infrastructure:** Docker Compose
 * **API:** REST, versioned under `/api/v1`
-* **SDK:** `catalyst-sdk` — standalone Python client, published from `packages/catalyst-python-sdk`
+* **SDK:** `sdk-catalyst` (import name `catalyst_sdk`) — standalone Python client, published to PyPI from `packages/catalyst-python-sdk`
 
 ## Project Structure
 
@@ -225,7 +225,8 @@ Evaluation follows the implemented evaluator logic:
 
 ## Python SDK (`packages/catalyst-python-sdk`)
 
-* Package name `catalyst-sdk`, hatchling build, ships `py.typed`. Only runtime dependency is `httpx`.
+* Distribution is **`sdk-catalyst`** (import name `catalyst_sdk`). The `catalyst-sdk` PyPI name is taken by an unrelated project, so the distribution name differs from the import name. Hatchling build, ships `py.typed`, PEP 639 `license = "MIT"` with a bundled `LICENSE`. Only runtime dependency is `httpx`.
+* Releases are automated by `.github/workflows/publish-sdk.yml`: it runs on pushes to `main` that touch the package, runs the SDK and parity suites, then publishes if the `pyproject.toml` version is new on PyPI. Auth is PyPI Trusted Publishing (OIDC), so no token is stored in the repo. To release, bump the version and merge.
 * `hashing.py` vendors MurmurHash3 x86_32 so sticky bucketing needs no native extension. It is verified against the real `mmh3` library and against the server's `get_user_bucket()`.
 * `evaluator.py` mirrors `app/services/evaluator.py`: kill switch → rules by ascending priority → percentage rollout → default. Operator aliases (`eq`, `gt`, `notExists`, …) are accepted and normalized.
 * `client.py` fetches `/api/v1/bootstrap` in the constructor and then **never performs I/O during evaluation**. Snapshot swaps are a single attribute assignment, so readers always see a consistent view.
@@ -261,6 +262,9 @@ make test
 
 # Run SDK tests
 make test-sdk
+
+# Build the SDK wheel
+make build-sdk
 ```
 
 Default development ports:
@@ -325,4 +329,5 @@ Automated on pull requests targeting `main` and pushes to `main` via `.github/wo
 * **`backend-tests`**: Runs on Python 3.12 with `uv` (`uv run pytest` - all 39 SQLite-backed unit and integration tests).
 * **`frontend-checks`**: Runs on Node 22 (`npm ci`, `npm run test`, `npm run lint`, `npm run build`).
 * **`sdk-tests`**: Runs on Python 3.12 — the SDK suite, a `uv build` wheel check, and the server/SDK parity suite inside the backend environment.
+* **`Publish SDK`**: On pushes to `main` touching `packages/catalyst-python-sdk/**`, re-runs the SDK and parity suites and publishes to PyPI when the version is new. Requires a one-time Trusted Publisher config on pypi.org (owner `VijeshVS`, repo `catalyst`, workflow `publish-sdk.yml`, environment `pypi`).
 
