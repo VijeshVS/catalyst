@@ -1,0 +1,49 @@
+# Render Blueprint for Catalyst.
+#
+# The API is a native Python service (no Docker) built with uv. The database is
+# intentionally NOT declared here: Render's free Postgres expires 30 days after
+# creation and deletes the data, so this points at an external provider (Neon or
+# Supabase free tier) supplied through DATABASE_URL.
+#
+# Render Key Value is Redis-compatible and is what REDIS_URL points at. The app
+# degrades to "fallback mode" if Redis is unreachable, so this instance is
+# optional and safe to delete.
+services:
+  - type: web
+    name: catalyst-api
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildCommand: |
+      pip install uv
+      uv venv /opt/render/project/venv
+      uv pip install --python /opt/render/project/venv/bin/python -r pyproject.toml
+    startCommand: /opt/render/project/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    # Free instances spin down after 15 minutes idle, so a cold start can take
+    # about a minute. Allow generous timeouts.
+    autoDeployTrigger: commit
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12.11"
+      - key: API_HOST
+        value: 0.0.0.0
+      # Supplied out of band. Never commit a real connection string.
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      # Must be injected, never left at the development default.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SECRET_KEY
+        generateValue: true
+      # Add the deployed frontend origin, e.g. https://catalyst-xyz.vercel.app
+      - key: CORS_ORIGINS
+        sync: false
+
+databases: []

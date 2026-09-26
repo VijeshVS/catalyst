@@ -123,7 +123,19 @@ export interface AuditLog {
   created_at: string;
 }
 
-const API_BASE = '/api/v1';
+/**
+ * Base URL for the API.
+ *
+ * Defaults to the relative `/api/v1`, which the Vite dev server proxies to a
+ * local backend. When the frontend is deployed separately from the API (for
+ * example Vercel in front of a Render web service), set `VITE_API_BASE_URL` to
+ * the backend's absolute origin, e.g. `https://catalyst-api.onrender.com/api/v1`.
+ */
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
+
+/** Health lives at the API root rather than under the versioned prefix. */
+const HEALTH_URL = import.meta.env.VITE_API_HEALTH_URL || '/healthz';
+
 const REFRESH_TOKEN_KEY = 'catalyst.refreshToken';
 
 let accessToken: string | null = null;
@@ -402,7 +414,7 @@ export async function createEnvironment(projectId: string, name: string): Promis
 // Health
 // ---------------------------------------------------------------------------
 export async function fetchHealth(): Promise<HealthStatus> {
-  return jsonRequest<HealthStatus>('/healthz', {}, { skipAuthRefresh: true });
+  return jsonRequest<HealthStatus>(HEALTH_URL, {}, { skipAuthRefresh: true });
 }
 
 // ---------------------------------------------------------------------------
