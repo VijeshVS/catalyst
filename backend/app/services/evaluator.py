@@ -141,8 +141,12 @@ def evaluate_flag(
     if not enabled:
         return default_value, "KILL_SWITCH_ACTIVE", None
 
-    # 2. Check targeting rules (sorted by priority)
-    for rule in rules:
+    # 2. Check targeting rules (lowest priority number first).
+    # Sorted here rather than relying on the caller, so the documented
+    # "first match by ascending priority wins" contract holds no matter how the
+    # rule list arrives. Callers already pass sorted lists, so this is a no-op
+    # for them and keeps the Python SDK's local evaluation byte-identical.
+    for rule in sorted(rules, key=lambda item: item.get("priority", 0)):
         conditions = rule.get("conditions", [])
         if match_rule(conditions, attributes):
             return rule.get("serve", True), "RULE_MATCH", rule.get("id")

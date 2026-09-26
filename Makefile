@@ -1,4 +1,4 @@
-.PHONY: help up down dev-api dev-web dev test
+.PHONY: help up down dev-api dev-web dev test test-sdk build-sdk
 
 help:
 	@echo "Catalyst — Feature Flag & Rollout Platform"
@@ -9,6 +9,8 @@ help:
 	@echo "  make dev-api   - Run FastAPI backend with uv (port 8000)"
 	@echo "  make dev-web   - Run React dashboard with Vite (port 5173)"
 	@echo "  make test      - Run backend unit and integration tests (pytest)"
+	@echo "  make test-sdk  - Run the Python SDK test suite"
+	@echo "  make build-sdk - Build the catalyst-sdk wheel"
 
 up:
 	docker compose up -d
@@ -24,3 +26,9 @@ dev-web:
 
 test:
 	cd backend && uv run pytest
+
+test-sdk:
+	cd packages/catalyst-python-sdk && uv run --with pytest --with mmh3 pytest
+
+build-sdk:
+	cd packages/catalyst-python-sdk && uv build

@@ -62,7 +62,7 @@ export function LandingPage() {
             </p>
             <div className="hero-actions">
               <Link className="btn-primary btn-large" to="/app">Get Started <span aria-hidden="true">→</span></Link>
-              <a className="btn-gold-outline btn-large" href="/docs" target="_blank" rel="noreferrer">View Docs <span aria-hidden="true">↗</span></a>
+              <a className="btn-gold-outline btn-large" href="/docs">View Docs <span aria-hidden="true">→</span></a>
             </div>
             <div className="hero-proof">
               <span className="proof-line" />
@@ -148,7 +148,7 @@ export function LandingPage() {
 
       <footer className="landing-footer">
         <div className="footer-brand"><span className="brand-logo tiny">C</span><span><strong>Catalyst</strong><small>Ship with confidence.</small></span></div>
-        <div className="footer-links"><a href="/docs" target="_blank" rel="noreferrer">Documentation</a><Link to="/login">Sign in</Link><Link to="/register">Create account</Link></div>
+        <div className="footer-links"><a href="/docs">Documentation</a><Link to="/login">Sign in</Link><Link to="/register">Create account</Link></div>
         <small>© 2026 Catalyst. Built for thoughtful teams.</small>
       </footer>
     </div>

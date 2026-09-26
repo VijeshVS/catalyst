@@ -302,19 +302,51 @@ This roadmap outlines upcoming features organized in the recommended implementat
 ## Phase 4: Standalone Python SDK Client Library
 
 > **Goal:** Provide a zero-latency, in-memory evaluation client library for Python applications.
+>
+> **Status: ✅ Complete.** The `catalyst-sdk` package fetches the bootstrap snapshot on load, evaluates
+> flags locally with no per-call I/O, refreshes conditionally with `If-None-Match`, and degrades to safe
+> defaults instead of raising. Local evaluation is held byte-identical to the server by a differential
+> test suite that fuzzes both implementations against each other.
 
-- [ ] **Package Structure (`packages/catalyst-python-sdk`)**
-  - Scaffolding with `pyproject.toml` (`catalyst-sdk`)
+- [x] **Package Structure (`packages/catalyst-python-sdk`)**
+  - Scaffolding with `pyproject.toml` (`catalyst-sdk`), hatchling build, `py.typed`
   - Standalone Murmur3 hashing and rule evaluation engine
-- [ ] **SDK Features**
-  - `CatalystClient(sdk_key="cp_prod_...", host="http://...")`
+- [x] **SDK Features**
+  - `CatalystClient(sdk_key="cp_prod_...", project_id=..., host="http://...", env="prod")`
   - **Fetch-on-Load Initialization**: Fetch `/api/v1/bootstrap` once on startup, cache snapshot in-memory
   - **Zero-Latency Evaluation**: `client.is_enabled("flag-key", user_id="user_123", attributes={"email": "..."})` executes in `< 1ms`
   - **Conditional ETag Polling/Reload**: Check for updates using `If-None-Match` (returns `304 Not Modified` when unchanged)
   - Fallback to safe default values on network failure or unexpected flag key
-- [ ] **Documentation & Demo Application**
-  - Python FastAPI / Flask demo app showing SDK usage
+- [x] **Documentation & Demo Application**
+  - Python FastAPI demo app showing SDK usage
   - Quick-start usage guide and example snippets
+
+### 4-A · Package & Core Engine
+
+- [x] **`hashing.py`** — vendored MurmurHash3 x86_32 so bucketing needs no native extension. Verified against the real `mmh3` library (200k random strings plus the published reference vectors) and against the server's own `get_user_bucket()`.
+- [x] **`evaluator.py`** — `Condition` / `Rule` / `EvaluationResult` plus `match_condition()`, `match_rule()`, and `evaluate_flag()`. Mirrors the server exactly: kill switch → rules by ascending priority → percentage rollout → default. Accepts operator aliases and normalizes them.
+- [x] **`snapshot.py`** — immutable `Snapshot` / `FlagSnapshot`, parsing the exact `/bootstrap` payload (camelCase `defaultValue`), and sorting rules defensively so a stale or hand-edited cache cannot evaluate out of order.
+- [x] **`transport.py`** — `BootstrapTransport` builds the conditional request and classifies the result as *fresh*, *not modified*, or *failed*. Maps 401/403 to `AuthorizationError` and other failures to `BootstrapError`.
+- [x] **`client.py`** — `CatalystClient` with `is_enabled()`, `evaluate()`, `get_all()`, `refresh()`, `start_auto_refresh()`, `stop_auto_refresh()`, `stats`, and a context manager.
+- [x] **Safe degradation** — a failed refresh keeps serving the last good snapshot and only `AuthorizationError` propagates, because a rejected key will not fix itself. An unknown flag key, a missing snapshot, and a failed refresh all resolve to the configured `default_value`.
+- [x] **Thread safety** — the snapshot is swapped with a single attribute assignment so readers always see a consistent view; the refresh thread is a daemon and never dies on error.
+- [x] **Disk cache** — the last good snapshot is persisted under `~/.cache/catalyst` (override with `CATALYST_CACHE_DIR`) using an atomic write-then-rename, so a cold start survives an unreachable API. `cache_path=False` disables it.
+
+### 4-B · Tests
+
+- [x] **SDK suite** (`packages/catalyst-python-sdk/tests/`) — 65 tests over the hash reference vectors, a full operator matrix, precedence, stickiness, ETag/304 handling, refresh failures, auto-refresh lifecycle, the error callback, and the disk cache.
+- [x] **Differential parity suite** (`backend/tests/test_sdk_parity.py`) — 17 tests that run the server evaluator and the SDK evaluator over the same fuzzed inputs and require identical values, reasons, and rule ids, plus a check that the SDK parses the real `/bootstrap` payload shape.
+
+### 4-C · Documentation, Demo & CI
+
+- [x] **README** — quick start, full argument table, evaluation precedence, operator list, API reference, offline behaviour, and error-handling table.
+- [x] **In-app documentation page** — `frontend/src/pages/DocsPage.tsx` serves the SDK reference at the public `/docs` route, so the landing page's "View Docs" CTA and footer "Documentation" link resolve to real content instead of 404ing. The page is also linked from the dashboard `Sidebar`, making it reachable from every `/app/**` route and not just the public marketing pages. Twelve sections with a sticky table of contents, copyable code blocks (`CodeBlock.tsx`), and configuration / operator / evaluation-reason / error tables.
+- [x] **FastAPI demo** (`examples/fastapi_demo/app.py`) — fetch-on-load startup, a background refresh thread, a flag-gated `/api/checkout` endpoint, `/api/flags` and `/api/inspect` for bulk and single-flag decisions, and a `/health` endpoint that separates "API down" from "stale but serving".
+- [x] **CI job** — `sdk-tests` runs the SDK suite on Python 3.12, verifies the wheel builds, and runs the parity suite in the backend environment.
+
+### Bug found and fixed by the parity suite
+
+The differential suite surfaced that `app/services/evaluator.py::evaluate_flag` **never sorted rules by priority**, relying on every caller to pre-sort. With unsorted input the server and SDK disagreed about which rule won. The server now sorts internally, so the documented "first match by ascending priority wins" contract holds regardless of caller and the two implementations agree for any input order. This was a no-op for existing callers, which already passed sorted lists.
 
 ---
 

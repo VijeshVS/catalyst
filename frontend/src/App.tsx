@@ -6,6 +6,7 @@ import { AppShell } from './components/AppShell';
 import { ApiKeysPage } from './pages/ApiKeysPage';
 import { AppEntryPage } from './pages/AppEntryPage';
 import { CreateProjectPage } from './pages/CreateProjectPage';
+import { DocsPage } from './pages/DocsPage';
 import { EnvironmentsPage } from './pages/EnvironmentsPage';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
@@ -35,6 +36,8 @@ export function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
       <Route path="/register" element={<PublicOnlyRoute><RegisterPage /></PublicOnlyRoute>} />
+      {/* Public SDK documentation. Linked from the landing page hero and footer. */}
+      <Route path="/docs" element={<DocsPage />} />
       <Route
         path="/app"
         element={
