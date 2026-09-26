@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catalyst Visual · Catalyst Visual</title>
+<meta name="description" content="Seven interactive, source-backed diagrams of the Catalyst feature flag platform.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230E0E0E'/%3E%3Cpath d='M16 5l9 11-9 11-9-11z' fill='%23F5C518'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+        <a class="brand" href="./index.html">Catalyst<span>Visual</span></a>
+        <nav aria-label="Diagrams">
+          <a href="./index.html" class="is-current">Index</a>
+          <a href="./runtime-architecture.html">01 Runtime</a>
+          <a href="./serve-path.html">02 Serve</a>
+          <a href="./toggle-propagation.html">03 Toggle</a>
+          <a href="./provisioning.html">04 Provision</a>
+          <a href="./sdk-client-lifecycle.html">05 Lifecycle</a>
+          <a href="./evaluation-dataflow.html">06 Dataflow</a>
+          <a href="./release-pipeline.html">07 Release</a>
+        </nav>
+</header>
+<main id="main">
+  <article class="page index">
+    <p class="eyebrow"><span class="num">00</span> Source-backed system map</p>
+    <h1>Catalyst, drawn out</h1>
+    <p class="lede">Seven interactive diagrams of how this feature flag platform actually runs.</p>
+    <p class="body-copy">
+      Each one is generated from a typed JSON source, validated against layout and
+      composition rules, and delivered as a single self-contained HTML file. Nothing on
+      these pages is drawn by hand, and every claim traces back to the repository.
+      Start with the runtime architecture, then follow whichever flow you actually care about.
+    </p>
+
+    <h2 class="section" id="diagrams">The diagrams</h2>
+    <ol class="grid">
+      <li class="card">
+        <a href="./runtime-architecture.html">
+          <p class="card-top"><span class="num">01</span> Architecture</p>
+          <h2>Runtime Architecture</h2>
+          <p class="card-lede">The whole system at a glance: who calls the API, what the API trusts, and where the data actually lives.</p>
+          <p class="card-meta">validated 9/9 checks · Architecture · source pinned to the repo</p>
+        </a>
+      </li>
+      <li class="card">
+        <a href="./serve-path.html">
+          <p class="card-top"><span class="num">02</span> Sequence</p>
+          <h2>SDK Flag Check: the Conditional Read</h2>
+          <p class="card-lede">One flag check, start to finish — including the cold path where the cache misses and the snapshot is rebuilt.</p>
+          <p class="card-meta">validated 9/9 checks · Sequence · source pinned to the repo</p>
+        </a>
+      </li>
+      <li class="card">
+        <a href="./toggle-propagation.html">
+          <p class="card-top"><span class="num">03</span> Sequence</p>
+          <h2>Toggle Propagation: Dashboard to Next Read</h2>
+          <p class="card-lede">How a rollout slider in the dashboard becomes a different flag value in somebody&#39;s server, and why it cannot be missed.</p>
+          <p class="card-meta">validated 9/9 checks · Sequence · source pinned to the repo</p>
+        </a>
+      </li>
+      <li class="card">
+        <a href="./provisioning.html">
+          <p class="card-top"><span class="num">04</span> Workflow</p>
+          <h2>Tenant Onboarding: Register to First Flag</h2>
+          <p class="card-lede">What the platform creates on your behalf, and in which order, when a new tenant gets its first flag.</p>
+          <p class="card-meta">validated 9/9 checks · Workflow · source pinned to the repo</p>
+        </a>
+      </li>
+      <li class="card">
+        <a href="./sdk-client-lifecycle.html">
+          <p class="card-top"><span class="num">05</span> Lifecycle</p>
+          <h2>SDK Client Read-Path Lifecycle</h2>
+          <p class="card-lede">The states a long-lived SDK client moves through, and why a failed flag check degrades instead of raising.</p>
+          <p class="card-meta">validated 9/9 checks · Lifecycle · source pinned to the repo</p>
+        </a>
+      </li>
+      <li class="card">
+        <a href="./evaluation-dataflow.html">
+          <p class="card-top"><span class="num">06</span> Data Flow</p>
+          <h2>Evaluation Data Flow and the PII Boundary</h2>
+          <p class="card-lede">Where the caller&#39;s attributes cross the wire, and the narrow window after which they are never handled again.</p>
+          <p class="card-meta">validated 9/9 checks · Data Flow · source pinned to the repo</p>
+        </a>
+      </li>
+      <li class="card">
+        <a href="./release-pipeline.html">
+          <p class="card-top"><span class="num">07</span> Workflow</p>
+          <h2>SDK Release Pipeline to PyPI</h2>
+          <p class="card-lede">What has to be true before a version of the SDK can reach PyPI, and why the parity suite is the real gate.</p>
+          <p class="card-meta">validated 9/9 checks · Workflow · source pinned to the repo</p>
+        </a>
+      </li>
+    </ol>
+
+    <section class="looks" aria-labelledby="how">
+      <h2 id="how">How to read them</h2>
+      <ul>
+        <li>Every artifact has <strong>guided chapters</strong> in the header. <kbd>P</kbd> plays them as a story.</li>
+        <li><kbd>/</kbd> finds a node by name, <kbd>R</kbd> traces an exact route, and <kbd>L</kbd> compares two roles.</li>
+        <li><kbd>M</kbd> opens the overview radar, <kbd>F</kbd> enters the presentation stage, and <kbd>Esc</kbd> leaves it.</li>
+        <li><kbd>E</kbd> exports a PNG, an SVG, a video, or a share card. Exports are always the full diagram.</li>
+        <li>Architecture nodes marked <span class="src">SRC n</span> open the exact file and line range, pinned to one commit.</li>
+      </ul>
+    </section>
+
+    <section class="looks" aria-labelledby="regen">
+      <h2 id="regen">Regenerating</h2>
+      <ul>
+        <li><code>visual/sources/*.json</code> is the editable source of truth for every diagram.</li>
+        <li><code>zsh visual/check.sh</code> validates all of them at showcase quality.</li>
+        <li><code>zsh visual/deliver.sh</code> re-renders and commits the artifacts.</li>
+        <li><code>zsh visual/verify.sh</code> collects bounded desktop browser evidence.</li>
+        <li><code>node visual/build-site.mjs</code> regenerates this index and the diagram pages.</li>
+      </ul>
+    </section>
+  </article>
+</main>
+<footer class="foot">
+  <p>Generated from the Catalyst repository with
+    <a href="https://github.com/tt-a1i/archify" rel="noopener">Archify</a>.
+    Every diagram is a validated, self-contained artifact with a typed JSON source.</p>
+  <p class="muted">Each artifact supports <kbd>?</kbd> for its guide, <kbd>/</kbd> to find a node,
+    <kbd>P</kbd> to play the guided chapters, <kbd>F</kbd> for the presentation stage,
+    and <kbd>S</kbd> / <kbd>T</kbd> to change visual style or theme.</p>
+</footer>
+</body>
+</html>

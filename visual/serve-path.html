@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDK Flag Check: the Conditional Read · Catalyst Visual</title>
+<meta name="description" content="One flag check, start to finish — including the cold path where the cache misses and the snapshot is rebuilt.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230E0E0E'/%3E%3Cpath d='M16 5l9 11-9 11-9-11z' fill='%23F5C518'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+        <a class="brand" href="./index.html">Catalyst<span>Visual</span></a>
+        <nav aria-label="Diagrams">
+          <a href="./index.html">Index</a>
+          <a href="./runtime-architecture.html">01 Runtime</a>
+          <a href="./serve-path.html" class="is-current">02 Serve</a>
+          <a href="./toggle-propagation.html">03 Toggle</a>
+          <a href="./provisioning.html">04 Provision</a>
+          <a href="./sdk-client-lifecycle.html">05 Lifecycle</a>
+          <a href="./evaluation-dataflow.html">06 Dataflow</a>
+          <a href="./release-pipeline.html">07 Release</a>
+        </nav>
+</header>
+<main id="main">
+  <article class="page">
+    <p class="eyebrow"><span class="num">02</span> Sequence</p>
+    <h1>SDK Flag Check: the Conditional Read</h1>
+    <p class="lede">One flag check, start to finish — including the cold path where the cache misses and the snapshot is rebuilt.</p>
+    <p class="body-copy">The client reads conditionally and decides locally, so an unchanged environment costs one small round trip and never a full snapshot transfer. On a miss the API rebuilds the snapshot from PostgreSQL and writes it through. The response names its own source in the X-Catalyst-Cache header, which is the only external signal of which layer answered.</p>
+
+    <section class="looks" aria-labelledby="looks-serve-path">
+      <h2 id="looks-serve-path">What to look for</h2>
+      <ul>
+        <li>Compare the warm path with the cold path shown here: a 304 skips the snapshot load entirely.</li>
+        <li>The version read happens before the cache read, because that row is what validates the cache entry.</li>
+        <li>Identity is a hard gate, not a formality — an unknown key never reaches the snapshot service.</li>
+      </ul>
+    </section>
+
+    <div class="frame">
+      <iframe src="./artifacts/serve-path.html" title="SDK Flag Check: the Conditional Read"
+              loading="lazy" referrerpolicy="no-referrer"></iframe>
+    </div>
+
+    <nav class="pager" aria-label="Diagram">
+      <a class="prev" href="./runtime-architecture.html"><span>Previous</span>Runtime Architecture</a>
+      <a class="next" href="./toggle-propagation.html"><span>Next</span>Toggle Propagation: Dashboard to Next Read</a>
+    </nav>
+  </article>
+</main>
+<footer class="foot">
+  <p>Generated from the Catalyst repository with
+    <a href="https://github.com/tt-a1i/archify" rel="noopener">Archify</a>.
+    Every diagram is a validated, self-contained artifact with a typed JSON source.</p>
+  <p class="muted">Each artifact supports <kbd>?</kbd> for its guide, <kbd>/</kbd> to find a node,
+    <kbd>P</kbd> to play the guided chapters, <kbd>F</kbd> for the presentation stage,
+    and <kbd>S</kbd> / <kbd>T</kbd> to change visual style or theme.</p>
+</footer>
+</body>
+</html>

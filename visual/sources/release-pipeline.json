@@ -1,0 +1,219 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "SDK Release Pipeline to PyPI",
+    "output": "artifacts/release-pipeline.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "gate",
+        "label": "The parity gate",
+        "focus": [
+          "trig",
+          "tests",
+          "parity",
+          "check"
+        ],
+        "note": "Why the differential suite, not the unit tests, is the thing that can block a release."
+      },
+      {
+        "id": "release",
+        "label": "Release",
+        "focus": [
+          "check",
+          "build",
+          "publish",
+          "skip"
+        ],
+        "note": "Build, attest, and publish, or skip cleanly when the version is already out."
+      }
+    ],
+    "viewBox": [
+      1240,
+      660
+    ]
+  },
+  "lanes": [
+    {
+      "id": "trigger",
+      "label": "Trigger"
+    },
+    {
+      "id": "verify",
+      "label": "Verify"
+    },
+    {
+      "id": "gate",
+      "label": "Gate"
+    },
+    {
+      "id": "release",
+      "label": "Release"
+    }
+  ],
+  "phases": [
+    {
+      "id": "verify",
+      "label": "Verify",
+      "fromCol": 0,
+      "toCol": 2
+    },
+    {
+      "id": "gate",
+      "label": "Idempotency check",
+      "fromCol": 3,
+      "toCol": 3,
+      "variant": "security"
+    },
+    {
+      "id": "release",
+      "label": "Build + publish",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "emphasis"
+    }
+  ],
+  "mainPath": [
+    "trig",
+    "tests",
+    "parity",
+    "check",
+    "build",
+    "publish"
+  ],
+  "nodes": [
+    {
+      "id": "trig",
+      "lane": "trigger",
+      "col": 0,
+      "type": "external",
+      "label": "Push to main",
+      "sublabel": "paths filter",
+      "tag": "paths filter",
+      "width": 128
+    },
+    {
+      "id": "tests",
+      "lane": "verify",
+      "col": 1,
+      "type": "backend",
+      "label": "SDK Tests",
+      "sublabel": "uv run pytest",
+      "tag": "no network",
+      "width": 128
+    },
+    {
+      "id": "parity",
+      "lane": "verify",
+      "col": 2,
+      "type": "backend",
+      "label": "Parity Suite",
+      "sublabel": "vs SDK fuzz",
+      "tag": "differential",
+      "width": 128
+    },
+    {
+      "id": "check",
+      "lane": "gate",
+      "col": 3,
+      "type": "security",
+      "label": "Version on PyPI?",
+      "sublabel": "pypi.org JSON",
+      "tag": "skip if known",
+      "width": 128
+    },
+    {
+      "id": "build",
+      "lane": "release",
+      "col": 4,
+      "type": "messagebus",
+      "label": "uv build",
+      "sublabel": "wheel + sdist",
+      "tag": "verified",
+      "width": 128
+    },
+    {
+      "id": "publish",
+      "lane": "release",
+      "col": 5,
+      "type": "external",
+      "label": "PyPI",
+      "sublabel": "OIDC publish",
+      "tag": "OIDC, no token",
+      "width": 128
+    },
+    {
+      "id": "skip",
+      "lane": "gate",
+      "col": 5,
+      "type": "messagebus",
+      "label": "Skip",
+      "sublabel": "nothing to do",
+      "tag": "notice only",
+      "width": 128
+    }
+  ],
+  "edges": [
+    {
+      "id": "trigger-tests",
+      "from": "trig",
+      "to": "tests",
+      "variant": "default"
+    },
+    {
+      "id": "tests-parity",
+      "from": "tests",
+      "to": "parity",
+      "label": "green",
+      "variant": "default"
+    },
+    {
+      "id": "parity-check",
+      "from": "parity",
+      "to": "check",
+      "label": "must pass",
+      "variant": "security"
+    },
+    {
+      "id": "check-build",
+      "from": "check",
+      "to": "build",
+      "label": "version is new",
+      "variant": "emphasis"
+    },
+    {
+      "id": "check-skip",
+      "from": "check",
+      "to": "skip",
+      "label": "already published",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "build-publish",
+      "from": "build",
+      "to": "publish",
+      "label": "attestations",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Parity is the real gate",
+      "items": [
+        "The unit suite proves the SDK agrees with itself; the differential suite proves it agrees with the server.",
+        "It runs in the backend environment because it imports the server evaluator, so both sides are fuzzed with identical inputs."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "No secret is stored",
+      "items": [
+        "Publishing uses PyPI Trusted Publishing over OIDC, so the repository holds no API token.",
+        "The job requests only id-token: write on top of contents: read, and it runs in a named environment that can require manual approval."
+      ]
+    }
+  ]
+}
