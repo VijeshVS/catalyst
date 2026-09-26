@@ -239,21 +239,63 @@ This roadmap outlines upcoming features organized in the recommended implementat
 ## Phase 3: Rule-Based Targeting & Visual Rule Builder
 
 > **Goal:** Enable targeted beta rollouts based on user attributes (e.g. email domain, user role, country, app version) with an intuitive dashboard builder.
+>
+> **Status: ✅ Complete.** Environment-scoped rule CRUD, priority re-ordering with dense `0..n-1`
+> renormalization, per-environment SDK cache invalidation, audit attribution, an expandable visual
+> rule builder on every flag card, and an attribute-aware evaluation playground are implemented.
 
-- [ ] **Backend: Rule CRUD Endpoints**
+- [x] **Backend: Rule CRUD Endpoints**
   - `POST /api/v1/flags/{key}/environments/{env}/rules` — Create targeting rule
   - `PUT /api/v1/flags/{key}/environments/{env}/rules/{rule_id}` — Update conditions/priority
   - `DELETE /api/v1/flags/{key}/environments/{env}/rules/{rule_id}` — Delete rule
-  - Re-order rule priorities (0 = highest priority)
-  - Invalidate environment version on rule mutation to bust SDK cache
-- [ ] **Frontend: Visual Rule Builder UI**
+  - `GET /api/v1/flags/{key}/environments/{env}/rules` — List rules in priority order
+  - `PUT /api/v1/flags/{key}/environments/{env}/rules/reorder` — Re-order priorities (0 = highest, renormalized to `0..n-1`)
+  - Invalidate environment version on rule mutation to bust SDK cache (only the mutated environment)
+- [x] **Frontend: Visual Rule Builder UI**
   - Expandable "Targeting Rules" section on each Flag Card
   - Condition builder row:
     - Attribute input (e.g. `email`, `role`, `country`, `version`)
-    - Operator dropdown (`equals`, `not_equals`, `in`, `contains`, `starts_with`, `ends_with`, `>`, `<`, `>=`, `<=`)
-    - Value input (string, comma-separated array, number)
+    - Operator dropdown (`equals`, `not_equals`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `>`, `>=`, `<`, `<=`, `exists`, `not_exists`)
+    - Value input (string, comma-separated array, number, boolean)
   - Target serve value toggle (`True` / `False`)
+  - Priority re-ordering (move up/down) and two-step delete confirmation
   - Integration with the live evaluation playground (pass custom attributes to verify rule match)
+
+### 3-A · Backend: Rules Service & Endpoints
+
+- [x] **Rule service** (`app/services/rules.py`):
+  - `list_rules_for_env()` — environment-scoped rules ordered by priority
+  - `next_priority()` — append position for a new rule
+  - `normalize_priorities()` — dense `0..n-1` renormalization
+  - `apply_ordered_ids()` — validates a reorder request lists every rule exactly once
+  - `serialize_rule()` / `serialize_rules()` — audit snapshots
+- [x] **Rule schemas** (`app/schemas/schemas.py`):
+  - `RuleCondition` — validated `{attr, op, value}` with canonical operator normalization
+  - `RuleCreate` / `RuleUpdate` / `RuleReorder`
+  - `TargetingRuleResponse` — exposes `conditions` on every wire format (flag list, rule CRUD, bootstrap)
+  - Conditions are required (1–25 per rule) so an unconditional catch-all rule cannot be created by accident
+- [x] **Rule endpoints** (`app/api/v1/flags.py`) — all owner-scoped, environment-validated, and audited as `rule.created` / `rule.updated` / `rule.deleted` / `rule.reordered`
+- [x] **Evaluator** (`app/services/evaluator.py`) — added the `exists` / `not_exists` presence operators and the `RULE_OPERATORS` / `normalize_operator()` catalogue shared by the schema layer
+- [x] **Tests** (`tests/test_rules.py`) — 14 tests covering condition validation, CRUD, cross-user/cross-project/cross-environment isolation, priority density and re-ordering, environment-scoped cache invalidation, audit attribution, and rule-driven evaluation precedence
+
+### 3-B · Frontend: Rule Builder & Attribute Playground
+
+- [x] **Rule builder** (`frontend/src/components/RuleBuilder.tsx`) — collapsible per-flag section with read-only rule summaries, an inline condition editor, serve-value toggle, priority move up/down, and two-step delete
+- [x] **Preset-driven conditions** — conditions are built by picking, not typing:
+  - **Attribute catalogue** (`frontend/src/lib/attributeCatalog.ts`) — 13 typed presets grouped by Identity / Billing / Geography / Client / Account, each declaring its value kind, sensible operators, option list, and an example value
+  - **Attribute** is a grouped `<select>` with a **Custom attribute…** escape hatch for anything not catalogued
+  - **Operator** is filtered to the operators that make sense for the chosen attribute (`app_version` offers `>=`, not `contains`)
+  - **Value** control is derived from the attribute kind: `True/False` toggle for booleans, closed option list for enums, numeric input for numbers, token chips + clickable suggestions for `in` / `not_in`
+  - A newly added condition arrives pre-filled from the catalogue, so the common case needs zero typing
+- [x] **Live match preview** — an ordered read-out of every rule (including the unsaved draft) against the current playground context, marking which rule wins and what it serves, backed by a client-side mirror of the evaluator in `previewConditionMatch` / `previewRuleMatch`
+- [x] **Per-condition match indicator** — each row reports whether that condition matches the current context
+- [x] **Playground presets** — the attribute box has grouped preset chips that append ready-made `key=value` pairs
+- [x] **Targeting helpers** (`frontend/src/lib/targeting.ts`) — operator catalogue, value coercion shared by rules and the playground, list-token splitting/joining, draft validation, and attribute-input parsing
+- [x] **Workspace state** (`frontend/src/workspace/useProject.ts`) — `rulesFor`, `createRule`, `updateRule`, `deleteRule`, `moveRule`, and attributes threaded into `evaluate`
+- [x] **API client** (`frontend/src/api.ts`) — typed `RuleCondition`, `TargetingRule`, and the five rule endpoints
+- [x] **Playground attributes** (`frontend/src/components/EvalPlayground.tsx`) — `key=value`/JSON attribute input, human-readable evaluation reasons, and matched rule id
+- [x] **Styling** (`frontend/src/App.css`) — `rule-*` block reusing the existing form/button/badge primitives, plus responsive rules
+- [x] **Tests** (`frontend/src/test/ruleBuilder.test.tsx`) — 33 tests over the value helpers, the attribute catalogue and match preview, and the builder's create/edit/delete/reorder flows
 
 ---
 

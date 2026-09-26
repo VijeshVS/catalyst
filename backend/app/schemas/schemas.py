@@ -1,7 +1,16 @@
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
+
+from app.services.evaluator import PRESENCE_OPERATORS, RULE_OPERATORS, normalize_operator
 
 
 # ---------------------------------------------------------------------------
@@ -170,14 +179,93 @@ class FlagStateUpdate(BaseModel):
     percentage: Optional[int] = Field(default=None, ge=0, le=100)
 
 
+class RuleCondition(BaseModel):
+    """
+    A single targeting condition. All conditions inside a rule are ANDed.
+    """
+
+    attr: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=64,
+            pattern=r"^[A-Za-z0-9_.:-]+$",
+        ),
+    ] = Field(..., description="Attribute name evaluated against the request context, e.g. email")
+    op: str = Field(default="equals", description="One of the supported condition operators")
+    value: Any = Field(
+        default=None,
+        validate_default=True,
+        description="Comparison value; ignored by exists/not_exists",
+    )
+
+    @field_validator("op")
+    @classmethod
+    def validate_operator(cls, value: str) -> str:
+        normalized = normalize_operator(value)
+        if normalized not in RULE_OPERATORS:
+            raise ValueError(
+                f"Unsupported operator '{value}'. Supported: {', '.join(RULE_OPERATORS)}"
+            )
+        return normalized
+
+    @field_validator("value")
+    @classmethod
+    def default_presence_value(cls, value: Any, info) -> Any:
+        # `exists` / `not_exists` carry no comparison value; pin it to a
+        # boolean so stored conditions stay self-describing.
+        if info.data.get("op") in PRESENCE_OPERATORS:
+            return normalize_operator(info.data.get("op")) == "exists"
+        return value
+
+
+class RuleCreate(BaseModel):
+    conditions: List[RuleCondition] = Field(
+        ...,
+        min_length=1,
+        max_length=25,
+        description="All conditions must match (AND) for the rule to apply",
+    )
+    serve: bool = Field(default=True, description="Value served when every condition matches")
+    priority: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="0 is the highest priority. Appended to the end when omitted.",
+    )
+
+
+class RuleUpdate(BaseModel):
+    conditions: Optional[List[RuleCondition]] = Field(default=None, min_length=1, max_length=25)
+    serve: Optional[bool] = None
+    priority: Optional[int] = Field(default=None, ge=0)
+
+
+class RuleReorder(BaseModel):
+    rule_ids: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Every rule id of the environment, ordered from highest to lowest priority",
+    )
+
+
 class TargetingRuleSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: Optional[str] = None
     env: str
     priority: int = 0
-    conditions_json: List[Dict[str, Any]] = Field(default_factory=list)
+    conditions: List[RuleCondition] = Field(
+        default_factory=list,
+        # The database column is `conditions_json`; every wire format (flag
+        # list, rule CRUD, bootstrap) exposes the same `conditions` shape.
+        validation_alias=AliasChoices("conditions", "conditions_json"),
+    )
     serve: bool = True
+
+
+class TargetingRuleResponse(TargetingRuleSchema):
+    id: str
 
 
 class FlagCreate(BaseModel):
