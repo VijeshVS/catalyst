@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "SDK Flag Check: the Conditional Read",
+    "output": "artifacts/serve-path.html",
+    "viewBox": [1080, 525],
+    "column_fit": "spread",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "request-and-auth", "label": "Request and identity", "focus": ["app", "sdk", "api", "auth"], "note": "The conditional read and the project-scoped key check that gates it." },
+      { "id": "cache-fallback", "label": "Cache miss fallback", "focus": ["api", "redis", "pg"], "note": "What happens on the cold path, and why a miss is a miss rather than a stale read." },
+      { "id": "local-decision", "label": "Local decision", "focus": ["sdk", "app"], "note": "The flag is decided in the caller's own process against the snapshot it just fetched." }
+    ]
+  },
+  "participants": [
+    { "id": "app", "type": "external", "label": "Application", "sublabel": "your code" },
+    { "id": "sdk", "type": "backend", "label": "CatalystClient", "sublabel": "sdk-catalyst 0.2" },
+    { "id": "api", "type": "backend", "label": "Bootstrap API", "sublabel": "GET /bootstrap" },
+    { "id": "auth", "type": "security", "label": "Key Check", "sublabel": "key + project pin" },
+    { "id": "redis", "type": "database", "label": "Redis", "sublabel": "snapshot cache" },
+    { "id": "pg", "type": "database", "label": "PostgreSQL", "sublabel": "flags + states" }
+  ],
+  "segments": [
+    { "from": 150, "to": 260, "label": "Request" },
+    { "from": 260, "to": 426, "label": "Cache resolve" },
+    { "from": 426, "to": 478, "label": "Decide locally" }
+  ],
+  "messages": [
+    { "id": "check-call", "from": "app", "to": "sdk", "y": 162, "label": "is_enabled('new-checkout')", "variant": "default" },
+    { "id": "conditional-get", "from": "sdk", "to": "api", "y": 190, "label": "GET /bootstrap + If-None-Match", "variant": "emphasis" },
+    { "id": "resolve-key", "from": "api", "to": "auth", "y": 218, "label": "resolve X-SDK-Key", "variant": "security" },
+    { "id": "key-ok", "from": "auth", "to": "api", "y": 246, "label": "ApiKey · project matches", "variant": "return" },
+    { "id": "version-read", "from": "api", "to": "pg", "y": 274, "label": "SELECT environment.version", "variant": "default" },
+    { "id": "cache-read", "from": "api", "to": "redis", "y": 302, "label": "GET snapshot · expect version", "variant": "default" },
+    { "id": "cache-miss", "from": "redis", "to": "api", "y": 330, "label": "miss · absent or older", "variant": "return" },
+    { "id": "rebuild", "from": "api", "to": "pg", "y": 358, "label": "SELECT flags + states + rules", "variant": "emphasis" },
+    { "id": "write-through", "from": "api", "to": "redis", "y": 386, "label": "SET snapshot EX 60", "variant": "dashed" },
+    { "id": "response", "from": "api", "to": "sdk", "y": 414, "label": "200 · ETag + X-Catalyst-Cache", "variant": "return" },
+    { "id": "decide", "from": "sdk", "to": "app", "y": 442, "label": "True · PERCENTAGE_ROLLOUT", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "sdk", "from": 180, "to": 448, "type": "backend" },
+    { "participant": "api", "from": 184, "to": 420, "type": "backend" },
+    { "participant": "auth", "from": 213, "to": 252, "type": "security" },
+    { "participant": "pg", "from": 270, "to": 364, "type": "database" },
+    { "participant": "redis", "from": 298, "to": 392, "type": "database" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "The warm path is one round trip", "items": [
+      "An unchanged environment answers 304 with no body, before the snapshot is ever loaded.",
+      "A warm read costs one indexed Environment row plus one Redis GET, and no flag query at all.",
+      "Concurrent checks collapse into one request: a read lock plus a refresh counter makes the read single-flight."
+    ] },
+    { "dot": "rose", "title": "Why a miss can never be stale", "items": [
+      "The cached entry stores the environment version, so a mismatch is a miss rather than a stale read.",
+      "SNAPSHOT_CACHE_TTL is only a backstop for a mutation that forgot to bump the version.",
+      "Every Redis helper swallows errors and reports a miss, so a cache outage is a slowdown, never a 500."
+    ] }
+  ]
+}

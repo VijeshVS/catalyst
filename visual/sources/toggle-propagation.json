@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Toggle Propagation: Dashboard to Next Read",
+    "output": "artifacts/toggle-propagation.html",
+    "viewBox": [
+      1080,
+      525
+    ],
+    "column_fit": "spread",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "mutation",
+        "label": "The mutation",
+        "focus": [
+          "browser",
+          "api",
+          "pg",
+          "redis"
+        ],
+        "note": "One PATCH that writes state, bumps the version, evicts the cache, and records the audit row."
+      },
+      {
+        "id": "next-check",
+        "label": "The next check",
+        "focus": [
+          "app",
+          "sdk",
+          "api",
+          "pg",
+          "redis"
+        ],
+        "note": "Why the following SDK read cannot be served the previous answer."
+      },
+      {
+        "id": "blast-radius",
+        "label": "Blast radius",
+        "focus": [
+          "pg",
+          "redis"
+        ],
+        "note": "One environment is invalidated, so no other environment's ETag moves."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "browser",
+      "type": "frontend",
+      "label": "Dashboard",
+      "sublabel": "RolloutSlider"
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Flags API",
+      "sublabel": "PATCH /flags/{key}/env"
+    },
+    {
+      "id": "pg",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "state + version"
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "Redis",
+      "sublabel": "snapshot key"
+    },
+    {
+      "id": "sdk",
+      "type": "backend",
+      "label": "CatalystClient",
+      "sublabel": "long-lived"
+    },
+    {
+      "id": "app",
+      "type": "external",
+      "label": "Application",
+      "sublabel": "next request"
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 288,
+      "label": "The mutation"
+    },
+    {
+      "from": 288,
+      "to": 478,
+      "label": "The next read"
+    }
+  ],
+  "messages": [
+    {
+      "id": "patch",
+      "from": "browser",
+      "to": "api",
+      "y": 162,
+      "label": "PATCH rollout 10% → 100%",
+      "variant": "emphasis"
+    },
+    {
+      "id": "state-write",
+      "from": "api",
+      "to": "pg",
+      "y": 190,
+      "label": "UPDATE state; version += 1",
+      "variant": "default"
+    },
+    {
+      "id": "evict",
+      "from": "api",
+      "to": "redis",
+      "y": 218,
+      "label": "DEL snapshot key",
+      "variant": "dashed"
+    },
+    {
+      "id": "audit",
+      "from": "api",
+      "to": "pg",
+      "y": 246,
+      "label": "INSERT audit_logs · user",
+      "variant": "dashed"
+    },
+    {
+      "id": "patched",
+      "from": "api",
+      "to": "browser",
+      "y": 274,
+      "label": "200 · ETag now version 8",
+      "variant": "return"
+    },
+    {
+      "id": "next-check",
+      "from": "app",
+      "to": "sdk",
+      "y": 302,
+      "label": "is_enabled('new-checkout')",
+      "variant": "default"
+    },
+    {
+      "id": "stale-ask",
+      "from": "sdk",
+      "to": "api",
+      "y": 330,
+      "label": "GET /bootstrap · If-None-Match v7",
+      "variant": "emphasis"
+    },
+    {
+      "id": "version-read",
+      "from": "api",
+      "to": "pg",
+      "y": 358,
+      "label": "SELECT environment → v8",
+      "variant": "default"
+    },
+    {
+      "id": "etag-miss",
+      "from": "api",
+      "to": "redis",
+      "y": 386,
+      "label": "GET snapshot · evicted",
+      "variant": "default"
+    },
+    {
+      "id": "rebuild",
+      "from": "api",
+      "to": "pg",
+      "y": 414,
+      "label": "SELECT flags + states + rules",
+      "variant": "emphasis"
+    },
+    {
+      "id": "fresh",
+      "from": "api",
+      "to": "sdk",
+      "y": 442,
+      "label": "200 · version 8 · new value",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "browser",
+      "from": 158,
+      "to": 280,
+      "type": "frontend"
+    },
+    {
+      "participant": "api",
+      "from": 162,
+      "to": 284,
+      "type": "backend"
+    },
+    {
+      "participant": "pg",
+      "from": 186,
+      "to": 252,
+      "type": "database"
+    },
+    {
+      "participant": "redis",
+      "from": 214,
+      "to": 284,
+      "type": "database"
+    },
+    {
+      "participant": "api",
+      "from": 326,
+      "to": 448,
+      "type": "backend"
+    },
+    {
+      "participant": "sdk",
+      "from": 298,
+      "to": 448,
+      "type": "backend"
+    },
+    {
+      "participant": "pg",
+      "from": 354,
+      "to": 448,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "One counter is the whole contract",
+      "items": [
+        "Environment.version is simultaneously the cache validation token and the weak ETag.",
+        "bump_environment_versions increments the version and evicts the key inside the caller's transaction.",
+        "The key was already gone, so a stale read is not merely unlikely, it is unreachable."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Ordering that is safe either way",
+      "items": [
+        "The Redis eviction happens before the database commit, and that ordering is deliberate.",
+        "Evicting early is conservative: a reader may rebuild from old rows, never the reverse.",
+        "The SDK's 304 short-circuit fires before the snapshot loads, so a toggle lands on the very next check."
+      ]
+    }
+  ]
+}

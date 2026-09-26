@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runtime Architecture · Catalyst Visual</title>
+<meta name="description" content="The whole system at a glance: who calls the API, what the API trusts, and where the data actually lives.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230E0E0E'/%3E%3Cpath d='M16 5l9 11-9 11-9-11z' fill='%23F5C518'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+        <a class="brand" href="./index.html">Catalyst<span>Visual</span></a>
+        <nav aria-label="Diagrams">
+          <a href="./index.html">Index</a>
+          <a href="./runtime-architecture.html" class="is-current">01 Runtime</a>
+          <a href="./serve-path.html">02 Serve</a>
+          <a href="./toggle-propagation.html">03 Toggle</a>
+          <a href="./provisioning.html">04 Provision</a>
+          <a href="./sdk-client-lifecycle.html">05 Lifecycle</a>
+          <a href="./evaluation-dataflow.html">06 Dataflow</a>
+          <a href="./release-pipeline.html">07 Release</a>
+        </nav>
+</header>
+<main id="main">
+  <article class="page">
+    <p class="eyebrow"><span class="num">01</span> Architecture</p>
+    <h1>Runtime Architecture</h1>
+    <p class="lede">The whole system at a glance: who calls the API, what the API trusts, and where the data actually lives.</p>
+    <p class="body-copy">Ten components and one obvious path. An operator in a browser and a customer server both resolve identity through the same dependency, the API hands the request to the snapshot service, and the decision is made by a pure evaluator. The two data stores sit outside the control plane, and the Redis cache sits inside a boundary with no authentication at all.</p>
+
+    <section class="looks" aria-labelledby="looks-runtime-architecture">
+      <h2 id="looks-runtime-architecture">What to look for</h2>
+      <ul>
+        <li>Follow the green rail left to right: it is the read path a customer server walks on every check.</li>
+        <li>Switch to the Trust levels view to compare what a Bearer JWT and an SDK key are each allowed to do.</li>
+        <li>The four dashed boxes are the trust boundaries. Render Key Value is the interesting one.</li>
+      </ul>
+    </section>
+
+    <div class="frame">
+      <iframe src="./artifacts/runtime-architecture.html" title="Runtime Architecture"
+              loading="lazy" referrerpolicy="no-referrer"></iframe>
+    </div>
+
+    <nav class="pager" aria-label="Diagram">
+      <span></span>
+      <a class="next" href="./serve-path.html"><span>Next</span>SDK Flag Check: the Conditional Read</a>
+    </nav>
+  </article>
+</main>
+<footer class="foot">
+  <p>Generated from the Catalyst repository with
+    <a href="https://github.com/tt-a1i/archify" rel="noopener">Archify</a>.
+    Every diagram is a validated, self-contained artifact with a typed JSON source.</p>
+  <p class="muted">Each artifact supports <kbd>?</kbd> for its guide, <kbd>/</kbd> to find a node,
+    <kbd>P</kbd> to play the guided chapters, <kbd>F</kbd> for the presentation stage,
+    and <kbd>S</kbd> / <kbd>T</kbd> to change visual style or theme.</p>
+</footer>
+</body>
+</html>
