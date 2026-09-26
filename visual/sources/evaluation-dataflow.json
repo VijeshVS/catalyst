@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Evaluation Data Flow and the PII Boundary",
+    "output": "artifacts/evaluation-dataflow.html",
+    "viewBox": [
+      1080,
+      500
+    ],
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "sensitivity",
+        "label": "Sensitivity boundary",
+        "focus": [
+          "caller",
+          "gate"
+        ],
+        "note": "Where caller attributes cross the wire, and the gate that decides whether they may continue."
+      },
+      {
+        "id": "config-movement",
+        "label": "Configuration movement",
+        "focus": [
+          "redis",
+          "snap"
+        ],
+        "note": "The only data that is stored, cached, and re-read on every check."
+      },
+      {
+        "id": "outcome",
+        "label": "Outcome",
+        "focus": [
+          "ev",
+          "decision"
+        ],
+        "note": "What leaves the system once the decision has been made locally."
+      }
+    ]
+  },
+  "stages": [
+    {
+      "label": "Caller"
+    },
+    {
+      "label": "Ingress"
+    },
+    {
+      "label": "Snapshot"
+    },
+    {
+      "label": "Decide"
+    },
+    {
+      "label": "Outcome"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "caller",
+      "type": "external",
+      "label": "Caller Context",
+      "sublabel": "user_id + attributes",
+      "stage": 0,
+      "row": 1,
+      "tag": "may be PII",
+      "width": 150
+    },
+    {
+      "id": "gate",
+      "type": "security",
+      "label": "API Key Gate",
+      "sublabel": "key + project pin",
+      "stage": 1,
+      "row": 1,
+      "tag": "read-only",
+      "width": 150
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "Redis Snapshot",
+      "sublabel": "version-matched",
+      "stage": 2,
+      "row": 0,
+      "tag": "no PII",
+      "width": 150
+    },
+    {
+      "id": "snap",
+      "type": "backend",
+      "label": "Snapshot Service",
+      "sublabel": "resolve or rebuild",
+      "stage": 2,
+      "row": 2,
+      "tag": "no PII",
+      "width": 150
+    },
+    {
+      "id": "ev",
+      "type": "backend",
+      "label": "Evaluator",
+      "sublabel": "pure function",
+      "stage": 3,
+      "row": 1,
+      "tag": "no I/O",
+      "width": 150
+    },
+    {
+      "id": "decision",
+      "type": "backend",
+      "label": "Flag Decision",
+      "sublabel": "value + reason",
+      "stage": 4,
+      "row": 1,
+      "tag": "no attributes",
+      "width": 150
+    }
+  ],
+  "flows": [
+    {
+      "id": "context-in",
+      "from": "caller",
+      "to": "gate",
+      "label": "key + context",
+      "classification": "attributes cross the wire",
+      "variant": "security",
+      "labelAt": [
+        207,
+        205
+      ]
+    },
+    {
+      "id": "authorize",
+      "from": "gate",
+      "to": "snap",
+      "label": "authorized read",
+      "classification": "attributes not retained",
+      "variant": "emphasis",
+      "labelAt": [
+        400,
+        200
+      ]
+    },
+    {
+      "id": "snapshot-cache",
+      "from": "snap",
+      "to": "redis",
+      "label": "write-through",
+      "classification": "flag config only",
+      "variant": "dashed",
+      "route": "vertical-channel",
+      "channelX": 560,
+      "labelAt": [
+        500,
+        244
+      ]
+    },
+    {
+      "id": "cache-hit",
+      "from": "redis",
+      "to": "snap",
+      "label": "version check",
+      "classification": "hit or miss",
+      "variant": "default",
+      "route": "vertical-channel",
+      "channelX": 592,
+      "labelAt": [
+        500,
+        320
+      ]
+    },
+    {
+      "id": "evaluate",
+      "from": "snap",
+      "to": "ev",
+      "label": "flags + rules",
+      "classification": "no PII",
+      "variant": "emphasis",
+      "labelAt": [
+        680,
+        334
+      ]
+    },
+    {
+      "id": "decide-out",
+      "from": "ev",
+      "to": "decision",
+      "label": "value + reason",
+      "classification": "attributes excluded",
+      "variant": "emphasis",
+      "labelAt": [
+        852,
+        205
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Where the attributes stop",
+      "items": [
+        "The caller's user_id and attributes travel to the API, are matched against rule conditions, and are then written nowhere.",
+        "Nothing between the gate and the evaluator persists a caller attribute, so a warm read never handles them at all."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "What is actually stored",
+      "items": [
+        "A snapshot holds keys, default values, kill-switch state, rollout percentages, and rule conditions, and nothing else.",
+        "It is tenant-scoped by the Redis key, so one project can never read another project's snapshot."
+      ]
+    }
+  ]
+}

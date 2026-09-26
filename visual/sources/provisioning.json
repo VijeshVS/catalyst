@@ -1,0 +1,278 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Tenant Onboarding: Register to First Flag",
+    "output": "artifacts/provisioning.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "identity",
+        "label": "Identity",
+        "focus": [
+          "register",
+          "orgapi",
+          "orgrow"
+        ],
+        "note": "An account and the organization it owns, with no auto-provisioned default."
+      },
+      {
+        "id": "provisioning",
+        "label": "Provisioning",
+        "focus": [
+          "projapi",
+          "envrows",
+          "flagapi",
+          "staterows"
+        ],
+        "note": "Creating a project silently creates three environments; creating a flag seeds a state per environment."
+      },
+      {
+        "id": "invalidation",
+        "label": "Invalidation and audit",
+        "focus": [
+          "staterows",
+          "invalidate",
+          "auditrow",
+          "respond"
+        ],
+        "note": "The new flag changes every environment snapshot, so every version moves and every key is evicted."
+      }
+    ],
+    "viewBox": [
+      1240,
+      660
+    ]
+  },
+  "lanes": [
+    {
+      "id": "operator",
+      "label": "Operator"
+    },
+    {
+      "id": "api",
+      "label": "API"
+    },
+    {
+      "id": "pg",
+      "label": "PostgreSQL"
+    },
+    {
+      "id": "cache",
+      "label": "Cache"
+    }
+  ],
+  "phases": [
+    {
+      "id": "identity",
+      "label": "Identity",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "provision",
+      "label": "Provision",
+      "fromCol": 2,
+      "toCol": 4,
+      "variant": "emphasis"
+    },
+    {
+      "id": "finalize",
+      "label": "Finalize",
+      "fromCol": 5,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "register",
+    "orgapi",
+    "projapi",
+    "flagapi",
+    "staterows",
+    "auditrow",
+    "respond"
+  ],
+  "nodes": [
+    {
+      "id": "register",
+      "lane": "operator",
+      "col": 0,
+      "type": "external",
+      "label": "Register",
+      "sublabel": "POST /register",
+      "tag": "rate limited",
+      "width": 128
+    },
+    {
+      "id": "orgapi",
+      "lane": "api",
+      "col": 1,
+      "type": "backend",
+      "label": "Create Org",
+      "sublabel": "create org",
+      "tag": "owner = caller",
+      "width": 128
+    },
+    {
+      "id": "projapi",
+      "lane": "api",
+      "col": 2,
+      "type": "backend",
+      "label": "Create Project",
+      "sublabel": "create project",
+      "tag": "auto envs",
+      "width": 128
+    },
+    {
+      "id": "flagapi",
+      "lane": "api",
+      "col": 3,
+      "type": "backend",
+      "label": "Create Flag",
+      "sublabel": "create flag",
+      "tag": "project scoped",
+      "width": 128
+    },
+    {
+      "id": "respond",
+      "lane": "api",
+      "col": 5,
+      "type": "backend",
+      "label": "201 Created",
+      "sublabel": "flag response",
+      "width": 128
+    },
+    {
+      "id": "orgrow",
+      "lane": "pg",
+      "col": 1,
+      "type": "database",
+      "label": "organizations",
+      "sublabel": "owner_id",
+      "tag": "unique name",
+      "width": 128
+    },
+    {
+      "id": "envrows",
+      "lane": "pg",
+      "col": 2,
+      "type": "database",
+      "label": "dev staging prod",
+      "sublabel": "version = 1",
+      "width": 128
+    },
+    {
+      "id": "staterows",
+      "lane": "pg",
+      "col": 4,
+      "type": "database",
+      "label": "flag × env states",
+      "sublabel": "seed states",
+      "width": 128
+    },
+    {
+      "id": "auditrow",
+      "lane": "pg",
+      "col": 5,
+      "type": "database",
+      "label": "audit_logs",
+      "sublabel": "flag.created",
+      "tag": "user attributed",
+      "width": 128
+    },
+    {
+      "id": "invalidate",
+      "lane": "cache",
+      "col": 3,
+      "type": "database",
+      "label": "bump + evict",
+      "sublabel": "all envs",
+      "tag": "SCAN + DEL",
+      "width": 128
+    }
+  ],
+  "edges": [
+    {
+      "id": "register-org",
+      "from": "register",
+      "to": "orgapi",
+      "label": "access token",
+      "variant": "emphasis"
+    },
+    {
+      "id": "org-write",
+      "from": "orgapi",
+      "to": "orgrow",
+      "label": "INSERT",
+      "variant": "default"
+    },
+    {
+      "id": "org-project",
+      "from": "orgapi",
+      "to": "projapi",
+      "label": "org owned",
+      "variant": "emphasis"
+    },
+    {
+      "id": "project-envs",
+      "from": "projapi",
+      "to": "envrows",
+      "label": "provision 3",
+      "variant": "emphasis"
+    },
+    {
+      "id": "project-flag",
+      "from": "projapi",
+      "to": "flagapi",
+      "label": "project ready",
+      "variant": "default"
+    },
+    {
+      "id": "flag-states",
+      "from": "flagapi",
+      "to": "staterows",
+      "label": "seed states",
+      "variant": "emphasis"
+    },
+    {
+      "id": "flag-evict",
+      "from": "flagapi",
+      "to": "invalidate",
+      "label": "bump all versions",
+      "variant": "dashed"
+    },
+    {
+      "id": "states-audit",
+      "from": "staterows",
+      "to": "auditrow",
+      "label": "audit row",
+      "variant": "dashed"
+    },
+    {
+      "id": "audit-respond",
+      "from": "auditrow",
+      "to": "respond",
+      "label": "commit",
+      "variant": "default"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Nothing is auto-provisioned",
+      "items": [
+        "There is no default organization or project. Both are explicitly created, and a user may own many organizations.",
+        "Creating a project is the only place the standard dev, staging, and prod environments appear, and it happens in the same transaction as the project."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Tenancy is enforced, not assumed",
+      "items": [
+        "Organization.owner_id is the ownership boundary, and every project, environment, and flag lookup is filtered through it.",
+        "A missing resource and an inaccessible one both answer 404, so IDs cannot be enumerated by probing."
+      ]
+    }
+  ]
+}

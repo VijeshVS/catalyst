@@ -1,0 +1,68 @@
+name: Deploy Visual Docs
+
+# Publishes visual/ to GitHub Pages. The diagrams are committed, self-contained
+# HTML, so this workflow only uploads them — it never rebuilds them. Regenerate
+# the artifacts locally with `zsh visual/deliver.sh` first.
+#
+# First-time setup, required once per repository:
+#   Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+#
+# A non-zero exit here means the site was not updated. Never describe a failed
+# deploy as success.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "visual/**"
+      - ".github/workflows/pages.yml"
+  # Lets a visual-only change ship before the rest of the branch lands.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; never cancel a running one, or the site is left half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy visual docs to Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      # actions/upload-pages-artifact accepts a single directory, so stage
+      # visual/ at the root of the upload rather than under a nested path.
+      - name: Stage the site
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp -R visual/. _site/
+          # The index has to be the site root, not only visual/index.html.
+          test -f _site/index.html || { echo "::error::_site/index.html is missing"; exit 1; }
+          for f in _site/artifacts/*.html; do
+            test -s "$f" || { echo "::error::$f is empty"; exit 1; }
+          done
+          echo "staged $(find _site -type f | wc -l | tr -d ' ') files"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

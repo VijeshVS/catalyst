@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evaluation Data Flow and the PII Boundary · Catalyst Visual</title>
+<meta name="description" content="Where the caller&#39;s attributes cross the wire, and the narrow window after which they are never handled again.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230E0E0E'/%3E%3Cpath d='M16 5l9 11-9 11-9-11z' fill='%23F5C518'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+        <a class="brand" href="./index.html">Catalyst<span>Visual</span></a>
+        <nav aria-label="Diagrams">
+          <a href="./index.html">Index</a>
+          <a href="./runtime-architecture.html">01 Runtime</a>
+          <a href="./serve-path.html">02 Serve</a>
+          <a href="./toggle-propagation.html">03 Toggle</a>
+          <a href="./provisioning.html">04 Provision</a>
+          <a href="./sdk-client-lifecycle.html">05 Lifecycle</a>
+          <a href="./evaluation-dataflow.html" class="is-current">06 Dataflow</a>
+          <a href="./release-pipeline.html">07 Release</a>
+        </nav>
+</header>
+<main id="main">
+  <article class="page">
+    <p class="eyebrow"><span class="num">06</span> Data Flow</p>
+    <h1>Evaluation Data Flow and the PII Boundary</h1>
+    <p class="lede">Where the caller&#39;s attributes cross the wire, and the narrow window after which they are never handled again.</p>
+    <p class="body-copy">The caller&#39;s user_id and attributes travel to the API, get matched against rule conditions, and are then written nowhere. What persists is configuration only: keys, defaults, kill-switch state, rollout percentages, and rule conditions. The response carries a value, a reason, and a rule id, but never the attribute that produced the match.</p>
+
+    <section class="looks" aria-labelledby="looks-evaluation-dataflow">
+      <h2 id="looks-evaluation-dataflow">What to look for</h2>
+      <ul>
+        <li>Trace the security-coloured flow: that is the only place PII enters the system.</li>
+        <li>Everything after the gate is configuration. The cache holds nothing else.</li>
+        <li>The evaluator performs no I/O at all, which is what makes the SDK mirror trustworthy.</li>
+      </ul>
+    </section>
+
+    <div class="frame">
+      <iframe src="./artifacts/evaluation-dataflow.html" title="Evaluation Data Flow and the PII Boundary"
+              loading="lazy" referrerpolicy="no-referrer"></iframe>
+    </div>
+
+    <nav class="pager" aria-label="Diagram">
+      <a class="prev" href="./sdk-client-lifecycle.html"><span>Previous</span>SDK Client Read-Path Lifecycle</a>
+      <a class="next" href="./release-pipeline.html"><span>Next</span>SDK Release Pipeline to PyPI</a>
+    </nav>
+  </article>
+</main>
+<footer class="foot">
+  <p>Generated from the Catalyst repository with
+    <a href="https://github.com/tt-a1i/archify" rel="noopener">Archify</a>.
+    Every diagram is a validated, self-contained artifact with a typed JSON source.</p>
+  <p class="muted">Each artifact supports <kbd>?</kbd> for its guide, <kbd>/</kbd> to find a node,
+    <kbd>P</kbd> to play the guided chapters, <kbd>F</kbd> for the presentation stage,
+    and <kbd>S</kbd> / <kbd>T</kbd> to change visual style or theme.</p>
+</footer>
+</body>
+</html>
