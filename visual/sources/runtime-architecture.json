@@ -3,7 +3,7 @@
   "diagram_type": "architecture",
   "meta": {
     "title": "Catalyst Runtime Architecture",
-    "output": "catalyst-runtime.html",
+    "output": "artifacts/runtime-architecture.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/VijeshVS/catalyst",
