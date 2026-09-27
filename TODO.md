@@ -1,372 +1,429 @@
-# Catalyst — Implementation Roadmap (TODO)
+# Catalyst — Roadmap 2.0
 
-This roadmap outlines upcoming features organized in the recommended implementation sequence. Each phase builds upon the existing core models and evaluation engine established during initialization.
+**Status:** planning. Nothing here is implemented yet.
 
----
+The original roadmap is finished. This one has three parts: fix an API key
+security problem, add timestamps, and **rework how flags are evaluated** so the
+behaviour matches what the product is supposed to do.
 
-## Phase 0: Landing Page & UX Separation (Navigation Overhaul)
+The evaluation rework is the big one. It changes what real users receive, so it
+has to be right before anything is built on top of it.
 
-> **Goal:** Replace the cluttered single-page dashboard with a proper multi-page flow:
-> a public landing page → organization onboarding → a GitHub-style project list → a project
-> detail view that separates flags, environments, and settings into distinct sub-pages.
->
-> **Status: ✅ Complete.** The React Router v6 route tree, public landing page, full-page
-> onboarding forms, persistent workspace sidebar, project navigation, environment tabs, and
-> extracted page/component/state architecture are implemented. The existing flag controls,
-> evaluation playground, and environment management remain available on the new project pages.
+### Status
 
-### 0-A · Public Landing Page (`/`)
-
-- [x] **Hero section** — Headline (`"Ship features with confidence"`), sub-headline, and two CTAs: _"Get Started"_ (→ `/app`) and _"View Docs"_.
-- [x] **Feature highlights** — Four cards: Feature Flags, Emergency Kill Switch, Percentage Rollout, SDK-Ready Bootstrap.
-- [x] **How It Works** — Numbered steps: Create org → Create project → Add flags → Evaluate.
-- [x] **Tech stack badge strip** — FastAPI · PostgreSQL · Redis · React.
-- [x] **Footer** — Branding, links.
-- [x] Must use the existing Retro Black & Gold design system from `frontend/src/index.css`.
-
-### 0-B · Routing Setup
-
-> React Router v6 is installed and configured in `frontend/src/App.tsx` / `main.tsx`.
-
-- [x] Install and configure **React Router v6** (`react-router-dom`).
-- [x] Define top-level routes:
-
-  | Path | Component |
-  |------|-----------|
-  | `/` | `LandingPage` |
-  | `/app` | Redirect → first/last org, or org-creation screen |
-  | `/app/orgs/:orgId` | `OrgDashboard` (project list) |
-  | `/app/orgs/:orgId/projects/:projectId` | `ProjectDetail` (flags tab by default) |
-  | `/app/orgs/:orgId/projects/:projectId/environments` | `EnvironmentsPage` |
-  | `/app/orgs/:orgId/projects/:projectId/audit` | `AuditPage` (Phase 3+ placeholder) |
-  | `/app/orgs/:orgId/projects/:projectId/settings` | `SettingsPage` (Phase 3+ placeholder) |
-
-### 0-C · Organization Onboarding Flow
-
-- [x] **Welcome screen** (`/app` — no orgs yet): Illustrated empty state, headline _"Create your first Organization"_, and a prominent CTA.
-- [x] **Create Organization** — **Full-page centered form, not a modal**:
-  - Organization name field with live slug preview (e.g. `acme-inc`).
-  - Optional short description.
-  - Submit navigates to the new org's project list (`/app/orgs/:orgId`).
-- [x] Visiting `/app` when orgs exist redirects to the last-valid organization persisted in `localStorage`, or to the first organization.
-- [x] **Org switcher** in the sidebar: dropdown listing all orgs + _"+ New Organization"_ at the bottom. The "+ Org" button was removed from the global header.
-
-### 0-D · Project List Page (`/app/orgs/:orgId`) — GitHub-style
-
-- [x] **Persistent sidebar** (visible across all `/app/**` routes):
-  - Org name + avatar initial at the top.
-  - Nav links: _Projects_ (active), _Settings_ (future).
-  - Org switcher dropdown at the bottom.
-- [x] **Projects grid/list** — each project card shows project name, environment badges, total flag count, and last-updated timestamp; cards navigate to project detail.
-- [x] **"+ New Project" flow** — **Full-page form, not a modal**:
-  - Project name input.
-  - Read-only preview of the three default environments that will be auto-created.
-  - On submit, redirects into the new project's flags page.
-- [x] Empty state when no projects exist — illustrated, with _"Create your first project"_ CTA.
-
-### 0-E · Project Detail Page (`/app/orgs/:orgId/projects/:projectId`)
-
-- [x] **Project header** — Breadcrumb (`OrgName / ProjectName`) and project-level environment tab strip, including custom environments.
-- [x] **Tab navigation** inside a project:
-
-  | Tab | URL suffix | Content |
-  |-----|-----------|---------|
-  | Feature Flags | (default, no suffix) | Flag list + create flow |
-  | Environments | `/environments` | Env list + custom env creation |
-  | API Keys | `/keys` | Phase 2 placeholder |
-  | Audit Log | `/audit` | Phase 3+ placeholder |
-  | Settings | `/settings` | Phase 3+ placeholder |
-
-- [x] **Feature Flags sub-page**:
-  - Flag cards with kill switch toggle, rollout slider, and evaluation playground.
-  - _"+ Create Flag"_ opens a slide-over panel, not a fullscreen modal overlay.
-  - Active environment comes from the project header/query state, not the global header.
-- [x] **Environments sub-page**:
-  - Lists all environments; standard environments have an _"auto-created"_ badge and custom ones a _"custom"_ badge.
-  - Shows bootstrap cache version (`v{n}`) per environment.
-  - Inline _"+ New Environment"_ form with lowercase identifier validation.
-  - _"View flags →"_ switches to the flags tab with that environment active.
-- [x] **Remove all workspace dropdowns from `<header>`**. The global header contains only brand, health indicator, and user menu.
-
-### 0-F · State Management & Component Refactor
-
-- [x] Introduce **`WorkspaceContext`** — owns the authenticated organization list, selected organization, project summaries, and workspace mutations.
-- [x] Introduce **`useProject(projectId)`** — owns flags, environments, active environment, playground state, and flag/environment actions.
-- [x] Extract pages into `frontend/src/pages/`:
-  - `LandingPage.tsx`
-  - `OrgDashboard.tsx` (project list)
-  - `ProjectDetail.tsx` (tabs + flag list)
-  - `EnvironmentsPage.tsx`
-- [x] Extract reusable UI components into `frontend/src/components/`:
-  - `Sidebar.tsx`
-  - `FlagCard.tsx`
-  - `KillSwitchButton.tsx`
-  - `RolloutSlider.tsx`
-  - `EvalPlayground.tsx`
-  - `EnvBadge.tsx`
-- [x] `npm run lint`, `npm run build`, and routing tests pass.
+| Phase | What it is | Status |
+|---|---|---|
+| [0](#phase-0--api-key-security-fix) | API key security fix | **Active** |
+| [1](#phase-1--updated_at-timestamps) | `updated_at` timestamps | **Active** |
+| [2](#phase-2--rework-how-flags-are-evaluated) | Rework evaluation | **Active** |
 
 ---
 
-## Phase 0.5: Authentication (Register / Login)
+# Phase 0 — API key security fix
 
-> **Goal:** Gate the entire dashboard behind user accounts. Users must register or log in before
-> they can create organizations, manage projects, or touch any flags. Auth is a prerequisite for
-> meaningful audit logs, org ownership, and the API key system in Phase 2.
->
-> **Status: ✅ Complete.** Registration, JSON login, typed access/refresh JWTs, protected API
-> ownership checks, audit attribution, frontend token refresh, auth pages, and rate-limited auth
-> endpoints are implemented. JWTs use `python-jose[cryptography]`; password hashing uses Passlib
-> bcrypt.
+**Status: Active.** Do this first.
 
-### 0.5-A · Backend: User Model & Auth Endpoints
+## The problem, in plain words
 
-- [x] **User model** — the existing `User` model was adapted in place (no duplicate model) with UUID/string UUID primary key, unique indexed email, `hashed_password` Python attribute mapped to the legacy-compatible `password_hash` column, full name, and created timestamp.
-- [x] **Password hashing** — Passlib bcrypt; passwords are deterministically pre-hashed only when they exceed bcrypt's 72-byte input limit.
-- [x] **JWT tokens** — signed typed access tokens (15 min) and refresh tokens (7 days) using `python-jose[cryptography]` and environment-configured secret/expiry.
-- [x] **Auth endpoints** under `/api/v1/auth/`:
-  | Method & Path | Description |
-  |---------------|-------------|
-  | `POST /api/v1/auth/register` | Create account (`email`, `password`, `full_name`) and return a token pair |
-  | `POST /api/v1/auth/login` | Return `access_token` + `refresh_token` (JSON body, not form) |
-  | `POST /api/v1/auth/refresh` | Exchange valid refresh token for a new token pair |
-  | `GET /api/v1/auth/me` | Return the current authenticated user's sanitized profile |
-- [x] **Auth dependency** — `get_current_user` is injected into every protected route; unauthenticated requests get `401`.
-- [x] **Exempt routes** — `/`, `/healthz`, `/api/v1/healthz`, `/api/v1/auth/register`, `/api/v1/auth/login`, and `/api/v1/auth/refresh` remain public.
-- [x] **Organization ownership** — `Organization.owner_id` points to `User.id`; organization/project/environment lookups filter by the authenticated owner, returning `404` for inaccessible resources.
-- [x] **Audit log enrichment** — nullable `user_id` FK and denormalized `user_email`, while retaining the Phase 1 `actor` field.
-- [x] Auth tests cover registration, validation, login, refresh, `/me`, bearer protection, cross-user isolation, rate limiting, and audit attribution.
-- [x] A documented one-time SQL transition for existing Phase 1 PostgreSQL databases is in `backend/migrations/001_auth_ownership.sql`; fresh/test databases continue to use the existing startup `create_all()` bootstrap.
+An API key looks like `cp_prod_a1b2c3d4e5f6g7h8i9j0k1`. You see the whole thing
+once, when you create it. After that Catalyst keeps only a **hash** — a one-way
+fingerprint, so the real key cannot be recovered from the database.
 
-### 0.5-B · Frontend: Auth Pages & Token Management
+Alongside the hash, Catalyst stored a **12-character nickname** (`cp_prod_a1b2c`) to
+help you tell keys apart in the list. That nickname is shown on the Keys tab.
 
-- [x] **`/login` page** — Email + password form, _"Don't have an account? Register"_ link, submit → stores tokens → redirects to `/app`.
-- [x] **`/register` page** — Full name + email + password + confirm password, submit → auto-login → redirects to `/app`.
-- [x] **Token storage** — access token remains in memory; refresh token is persisted in `localStorage` so a hard reload can restore the session. The localStorage/XSS tradeoff is documented; an httpOnly-cookie/CSRF design is deferred.
-- [x] **`AuthContext`** — exposes `user`, `login()`, `logout()`, and `register()`; it restores the session and handles expiry.
-- [x] **Protected route wrapper** — `<ProtectedRoute>` redirects unauthenticated users to `/login` and preserves the attempted destination.
-- [x] **Auth-aware API client** (`frontend/src/api.ts`) — attaches `Authorization: Bearer <token>`, shares a single refresh promise, retries a protected request once after refresh, and clears expired sessions.
-- [x] **User menu in header** — initials/avatar, signed-in email, and logout action.
-- [x] **`/login` and `/register` use the landing page's Black & Gold design**.
+**The bug:** when an SDK presented a key, the code checked the hash first, and if
+that failed it **also accepted the nickname as if it were the real key**. The
+nickname was meant to be a harmless label, but it worked as a password.
 
-### 0.5-C · Security Hardening (Minimum Bar)
+So today, anyone who can open the API Keys tab can use a key's nickname to read
+your project's flags.
 
-- [x] Rate-limit `/api/v1/auth/login` and `/api/v1/auth/register` requests per client IP (five per configured window, with `429`/`Retry-After`); the limiter is process-local for the current single-process deployment.
-- [x] `JWT_SECRET`, algorithm, and token expiry durations are read from environment variables; `.env.example` is updated.
-- [x] Passwords must be ≥ 8 characters (validated in Pydantic schemas).
-- [x] No response schema exposes `hashed_password` or `password_hash`.
+## What to change
 
----
+### 0-A · Only the full key may authenticate
 
-## Phase 1: Multi-Tenant Hierarchy (Organizations, Projects & Environments)
+- [ ] Delete the fallback lookup in `backend/app/services/api_keys.py:87-89` that
+      matches against the stored `prefix` column. Authentication must work **only**
+      by hashing the presented key and comparing it to the stored hash.
+- [ ] Delete `get_api_key_by_prefix` (`api_keys.py:93-96`); call
+      `get_api_key_by_raw_key` directly from `backend/app/api/v1/deps.py:126`.
+- [ ] Fix the two comments describing the abandoned design: `deps.py:107` and
+      `backend/app/schemas/schemas.py:343`.
+- [ ] **The stored hash stays.** The full key is already in the database as a
+      one-way hash. Keeping it hashed means a stolen backup or a SQL injection
+      cannot reveal anyone's key. Do not change this to plain text.
 
-> **Goal:** Transition from default auto-provisioned entities to explicit management of Organizations, Projects, and scoped Environments.
->
-> **Status: ✅ Complete.** All items below are implemented. Auto-provisioning of the default
-> organization/project was removed; every flag/evaluate/bootstrap/audit call requires an
-> explicit `project_id` (422 when missing, 404 when unknown) and validates that the environment
-> belongs to that project. The bootstrap ETag is project-scoped and invalidated by every
-> snapshot-affecting mutation. Phase 0.5 ownership checks now apply on top of these rules.
+### 0-B · Stop returning any part of the key
 
-- [x] **Backend: Organization Management**
-  - `POST /api/v1/organizations` — Create organization
-  - `GET /api/v1/organizations` — List the authenticated user's organizations
-  - `GET /api/v1/organizations/{id}` — Get organization details
-- [x] **Backend: Projects & Environments**
-  - `POST /api/v1/organizations/{org_id}/projects` — Create project
-  - Auto-provision standard environments (`dev`, `staging`, `prod`) on project creation
-  - `POST /api/v1/projects/{project_id}/environments` — Create custom environment
-  - `GET /api/v1/projects/{project_id}/environments` — List project environments
-  - Scope all flag queries and mutations strictly by `project_id`
-- [x] **Frontend: Workspace Navigation** _(superseded by the Phase 0 route architecture)_
-  - Persistent organization/project navigation
-  - Full-page project and organization creation flows
-  - Project-level environment management view
+- [ ] Remove `prefix` from `ApiKeyResponse` (`schemas.py:336-345`).
+- [ ] Keys stay distinguishable in the list by **name**, **environment**,
+      **status**, and **created date** — all already in the response.
+- [ ] The one-time full-key reveal at **creation** is unchanged. That should stay
+      the only moment the real key is ever shown.
+- [ ] **Frontend: `frontend/src/pages/ApiKeysPage.tsx` renders the prefix.** Remove
+      it. The create flow's one-time reveal and copy button stay as they are.
+- [ ] The `ApiKey.prefix` column can stay in the database — it is now just a
+      non-secret label. Dropping the column is a schema change and can ride along
+      with a later migration.
 
----
+### 0-C · Reissue existing keys
 
-## Phase 2: API Key Management & SDK Authentication
+Every existing key's nickname has been visible on the Keys tab to everyone with
+project access, so treat those keys as compromised:
 
-> **Goal:** Secure the `/bootstrap` and `/evaluate` endpoints with environment-scoped SDK tokens and provide a dashboard for managing keys.
+1. Revoke the old key.
+2. Create a new key.
+3. Put the new key in your app's config wherever the old one was.
+4. Redeploy the app.
 
-- [x] **Backend: API Key Service & Endpoints**
-  - Generate cryptographically secure keys with prefix format: `cp_<env>_<random32>`
-  - Store SHA-256 hash in `api_keys` table; return raw secret key only once upon creation
-  - `POST /api/v1/projects/{project_id}/keys` — Generate new API key
-  - `GET /api/v1/projects/{project_id}/keys` — List active keys (prefix, env, created_at, status)
-  - `DELETE /api/v1/projects/{project_id}/keys/{key_id}` — Revoke key
-  - Add `X-SDK-Key` authentication middleware to `/api/v1/bootstrap` and `/api/v1/evaluate`
-- [x] **Frontend: API Keys Dashboard**
-  - New "API Keys" tab inside the Project Detail page (Phase 0-E)
-  - Create Key modal with environment selector (`dev`, `staging`, `prod`) and descriptive name
-  - "Copy to Clipboard" banner with one-time reveal of full secret key
-  - Revocation confirmation dialog and status badges (`Active` / `Revoked`)
+Skipping this leaves a small risk that someone copied a nickname before the fix
+landed.
 
-### 2-A · Backend: API Key Service & Endpoints
+### 0-D · Default the environment to `dev` everywhere
 
-- [x] **API Key service** (`app/services/api_keys.py`):
-  - `generate_api_key_prefix(env)` — Creates `cp_<env>_<random32>` format key
-  - `hash_api_key(key)` — SHA-256 hashing for secure storage
-  - `create_api_key()` — Creates key, returns raw key (only once), stores hash
-  - `list_api_keys()` — Lists all keys for a project
-  - `revoke_api_key()` — Marks key as revoked
-- [x] **API Key schemas** (`app/schemas/schemas.py`):
-  - `ApiKeyCreate` — Request body for creating a key
-  - `ApiKeyResponse` — Response with key details
-  - `ApiKeyListResponse` — List of keys
-- [x] **API Key endpoints** (`app/api/v1/projects.py`):
-  - `POST /api/v1/projects/{project_id}/keys` — Create key (returns raw key once)
-  - `GET /api/v1/projects/{project_id}/keys` — List all keys
-  - `DELETE /api/v1/projects/{project_id}/keys/{key_id}` — Revoke key
-- [x] **Flexible auth middleware** (`app/api/v1/deps.py`):
-  - `get_current_sdk_key_or_user()` — Accepts either Bearer token or X-SDK-Key
-  - SDK keys can access `/bootstrap` and `/evaluate` endpoints
-  - Project scoping enforced for SDK keys
-- [x] **Authentication tests** (`tests/test_api_keys.py`):
-  - 7 comprehensive tests covering CRUD and SDK auth
-  - All 25 backend tests passing
+`/api/v1/bootstrap` defaults to `prod` (`api/v1/bootstrap.py:25`) while
+`/api/v1/evaluate` defaults to `dev` (`schemas.py:83`). Two endpoints in one system
+defaulting to different environments is a trap in a product built around
+environment isolation.
 
-### 2-B · Frontend: API Keys Dashboard
+- [ ] Change `/bootstrap` to default to `dev`.
+- [ ] Change the Python SDK's default from `env="prod"` to `env="dev"`
+      (`packages/catalyst-python-sdk/src/catalyst_sdk/client.py:114`).
+- [ ] Document the default in one place, and check the SDK README and
+      `frontend/src/pages/DocsPage.tsx` for any place that still says `prod`.
 
-- [x] **API Keys tab** (`frontend/src/pages/ProjectDetail.tsx`):
-  - Tab navigation with `/keys` route
-  - Create Key modal with environment selector
-  - List view with status badges and copy-to-clipboard
-  - Revocation confirmation dialog
+### 0-E · Clean up dead code
+
+- [ ] `get_sdk_key_from_header` (`deps.py:111-113`) — defined, never used.
+- [ ] `verify_api_key` (`api_keys.py:34-40`), `revoke_api_key` (`:127-142`),
+      `get_api_key_or_404` (`:145-156`) — defined, never called; the endpoint
+      re-implements the logic inline.
+- [ ] `random_bytes` at `api_keys.py:20` is assigned and never used.
+- [ ] `revoke_api_key_endpoint` commits twice (`projects.py:201` then `:216`),
+      writing the revoke and its audit row as two transactions. Combine.
+- [ ] `create_api_key` accepts `user_id` and `user_email` (`api_keys.py:48-49`)
+      and discards them, because `ApiKey` has no such columns. Either store them
+      or stop accepting them.
+
+### Done when
+
+- [ ] A 12-character nickname in `X-SDK-Key` is rejected with `404`.
+- [ ] The full key still authenticates.
+- [ ] The keys list response and the keys page show no part of any key.
+- [ ] `/evaluate`, `/bootstrap`, and the SDK all default to `dev`.
+- [ ] Every change has a test.
 
 ---
 
-## Phase 3: Rule-Based Targeting & Visual Rule Builder
+# Phase 1 — `updated_at` timestamps
 
-> **Goal:** Enable targeted beta rollouts based on user attributes (e.g. email domain, user role, country, app version) with an intuitive dashboard builder.
->
-> **Status: ✅ Complete.** Environment-scoped rule CRUD, priority re-ordering with dense `0..n-1`
-> renormalization, per-environment SDK cache invalidation, audit attribution, an expandable visual
-> rule builder on every flag card, and an attribute-aware evaluation playground are implemented.
+**Status: Active.** Small, but needed for the canary later.
 
-- [x] **Backend: Rule CRUD Endpoints**
-  - `POST /api/v1/flags/{key}/environments/{env}/rules` — Create targeting rule
-  - `PUT /api/v1/flags/{key}/environments/{env}/rules/{rule_id}` — Update conditions/priority
-  - `DELETE /api/v1/flags/{key}/environments/{env}/rules/{rule_id}` — Delete rule
-  - `GET /api/v1/flags/{key}/environments/{env}/rules` — List rules in priority order
-  - `PUT /api/v1/flags/{key}/environments/{env}/rules/reorder` — Re-order priorities (0 = highest, renormalized to `0..n-1`)
-  - Invalidate environment version on rule mutation to bust SDK cache (only the mutated environment)
-- [x] **Frontend: Visual Rule Builder UI**
-  - Expandable "Targeting Rules" section on each Flag Card
-  - Condition builder row:
-    - Attribute input (e.g. `email`, `role`, `country`, `version`)
-    - Operator dropdown (`equals`, `not_equals`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `>`, `>=`, `<`, `<=`, `exists`, `not_exists`)
-    - Value input (string, comma-separated array, number, boolean)
-  - Target serve value toggle (`True` / `False`)
-  - Priority re-ordering (move up/down) and two-step delete confirmation
-  - Integration with the live evaluation playground (pass custom attributes to verify rule match)
+## The problem, in plain words
 
-### 3-A · Backend: Rules Service & Endpoints
+Most tables have no timestamps. You cannot ask when a rollout started or when
+someone last moved a slider — that information does not exist.
 
-- [x] **Rule service** (`app/services/rules.py`):
-  - `list_rules_for_env()` — environment-scoped rules ordered by priority
-  - `next_priority()` — append position for a new rule
-  - `normalize_priorities()` — dense `0..n-1` renormalization
-  - `apply_ordered_ids()` — validates a reorder request lists every rule exactly once
-  - `serialize_rule()` / `serialize_rules()` — audit snapshots
-- [x] **Rule schemas** (`app/schemas/schemas.py`):
-  - `RuleCondition` — validated `{attr, op, value}` with canonical operator normalization
-  - `RuleCreate` / `RuleUpdate` / `RuleReorder`
-  - `TargetingRuleResponse` — exposes `conditions` on every wire format (flag list, rule CRUD, bootstrap)
-  - Conditions are required (1–25 per rule) so an unconditional catch-all rule cannot be created by accident
-- [x] **Rule endpoints** (`app/api/v1/flags.py`) — all owner-scoped, environment-validated, and audited as `rule.created` / `rule.updated` / `rule.deleted` / `rule.reordered`
-- [x] **Evaluator** (`app/services/evaluator.py`) — added the `exists` / `not_exists` presence operators and the `RULE_OPERATORS` / `normalize_operator()` catalogue shared by the schema layer
-- [x] **Tests** (`tests/test_rules.py`) — 14 tests covering condition validation, CRUD, cross-user/cross-project/cross-environment isolation, priority density and re-ordering, environment-scoped cache invalidation, audit attribution, and rule-driven evaluation precedence
+The visible symptom: every project tile shows a "last updated" time, but it is
+**fake**. It is calculated as the newest flag *creation* date
+(`api/v1/organizations.py:34-37`), so moving a rollout slider never changes it.
 
-### 3-B · Frontend: Rule Builder & Attribute Playground
+## What to change
 
-- [x] **Rule builder** (`frontend/src/components/RuleBuilder.tsx`) — collapsible per-flag section with read-only rule summaries, an inline condition editor, serve-value toggle, priority move up/down, and two-step delete
-- [x] **Preset-driven conditions** — conditions are built by picking, not typing:
-  - **Attribute catalogue** (`frontend/src/lib/attributeCatalog.ts`) — 13 typed presets grouped by Identity / Billing / Geography / Client / Account, each declaring its value kind, sensible operators, option list, and an example value
-  - **Attribute** is a grouped `<select>` with a **Custom attribute…** escape hatch for anything not catalogued
-  - **Operator** is filtered to the operators that make sense for the chosen attribute (`app_version` offers `>=`, not `contains`)
-  - **Value** control is derived from the attribute kind: `True/False` toggle for booleans, closed option list for enums, numeric input for numbers, token chips + clickable suggestions for `in` / `not_in`
-  - A newly added condition arrives pre-filled from the catalogue, so the common case needs zero typing
-- [x] **Live match preview** — an ordered read-out of every rule (including the unsaved draft) against the current playground context, marking which rule wins and what it serves, backed by a client-side mirror of the evaluator in `previewConditionMatch` / `previewRuleMatch`
-- [x] **Per-condition match indicator** — each row reports whether that condition matches the current context
-- [x] **Playground presets** — the attribute box has grouped preset chips that append ready-made `key=value` pairs
-- [x] **Targeting helpers** (`frontend/src/lib/targeting.ts`) — operator catalogue, value coercion shared by rules and the playground, list-token splitting/joining, draft validation, and attribute-input parsing
-- [x] **Workspace state** (`frontend/src/workspace/useProject.ts`) — `rulesFor`, `createRule`, `updateRule`, `deleteRule`, `moveRule`, and attributes threaded into `evaluate`
-- [x] **API client** (`frontend/src/api.ts`) — typed `RuleCondition`, `TargetingRule`, and the five rule endpoints
-- [x] **Playground attributes** (`frontend/src/components/EvalPlayground.tsx`) — `key=value`/JSON attribute input, human-readable evaluation reasons, and matched rule id
-- [x] **Styling** (`frontend/src/App.css`) — `rule-*` block reusing the existing form/button/badge primitives, plus responsive rules
-- [x] **Tests** (`frontend/src/test/ruleBuilder.test.tsx`) — 33 tests over the value helpers, the attribute catalogue and match preview, and the builder's create/edit/delete/reorder flows
+### 1-A · Add `updated_at` to `FlagEnvState` 🗄️
+
+`FlagEnvState` holds the kill switch and rollout percentage per flag per
+environment. It has **no timestamps at all**.
+
+- [ ] Add an `updated_at` column, defaulting to now.
+- [ ] Set it on **every** state mutation — kill switch and rollout percentage
+      alike, so moving the slider is recorded.
+- [ ] Write `backend/migrations/002_updated_at.sql` and apply it to Neon by hand.
+      **Startup `create_all()` only creates missing tables — it never adds a column
+      to an existing one**, so the model change alone does nothing to a live
+      database. See `backend/migrations/README.md`.
+
+### 1-B · Add timestamps to the other mutable tables 🗄️
+
+- [ ] `Flag.updated_at` — bumped on create and on any later edit.
+- [ ] `TargetingRule.created_at` and `.updated_at`.
+- [ ] `Environment.created_at`.
+- [ ] Can follow 1-A; 1-A is the one that matters.
+
+### 1-C · Make the project "last updated" honest
+
+- [ ] Once 1-B lands, change `ProjectResponse.updated_at` (`schemas.py:150`) to
+      use the real newest `Flag.updated_at` instead of `max(flag.created_at)`.
+- [ ] Test: change a rollout, confirm the project's `updated_at` moved.
+
+### Not doing now
+
+`Flag` has an `archived` column and an `?archived=true` filter, but **no API call
+can set it** — the switch has no button. There is no archive or delete concept
+yet. Left untouched and documented so it is not mistaken for working functionality.
 
 ---
 
-## Phase 4: Standalone Python SDK Client Library
+# Phase 2 — Rework how flags are evaluated
 
-> **Goal:** Provide a zero-latency, in-memory evaluation client library for Python applications.
->
-> **Status: ✅ Complete.** The `sdk-catalyst` package fetches the bootstrap snapshot on load, evaluates
-> flags locally with no per-call I/O, refreshes conditionally with `If-None-Match`, and degrades to safe
-> defaults instead of raising. Local evaluation is held byte-identical to the server by a differential
-> test suite that fuzzes both implementations against each other.
+**Status: Active. The most important phase in this document.** It changes what
+real users receive from the product, and the SDK has a copy of the same logic that
+must be changed in lockstep.
 
-- [x] **Package Structure (`packages/catalyst-python-sdk`)**
-  - Scaffolding with `pyproject.toml` (`sdk-catalyst`), hatchling build, `py.typed`
-  - Standalone Murmur3 hashing and rule evaluation engine
-- [x] **SDK Features**
-  - `CatalystClient(sdk_key="cp_prod_...", project_id=..., host="http://...", env="prod")`
-  - **Fetch-on-Load Initialization**: Fetch `/api/v1/bootstrap` once on startup, cache snapshot in-memory
-  - **Zero-Latency Evaluation**: `client.is_enabled("flag-key", user_id="user_123", attributes={"email": "..."})` executes in `< 1ms`
-  - **Conditional ETag Polling/Reload**: Check for updates using `If-None-Match` (returns `304 Not Modified` when unchanged)
-  - Fallback to safe default values on network failure or unexpected flag key
-- [x] **Documentation & Demo Application**
-  - Python FastAPI demo app showing SDK usage
-  - Quick-start usage guide and example snippets
+## What we want
 
-### 4-A · Package & Core Engine
+Two switches, in priority order:
 
-- [x] **`hashing.py`** — vendored MurmurHash3 x86_32 so bucketing needs no native extension. Verified against the real `mmh3` library (200k random strings plus the published reference vectors) and against the server's own `get_user_bucket()`.
-- [x] **`evaluator.py`** — `Condition` / `Rule` / `EvaluationResult` plus `match_condition()`, `match_rule()`, and `evaluate_flag()`. Mirrors the server exactly: kill switch → rules by ascending priority → percentage rollout → default. Accepts operator aliases and normalizes them.
-- [x] **`snapshot.py`** — immutable `Snapshot` / `FlagSnapshot`, parsing the exact `/bootstrap` payload (camelCase `defaultValue`), and sorting rules defensively so a stale or hand-edited cache cannot evaluate out of order.
-- [x] **`transport.py`** — `BootstrapTransport` builds the conditional request and classifies the result as *fresh*, *not modified*, or *failed*. Maps 401/403 to `AuthorizationError` and other failures to `BootstrapError`.
-- [x] **`client.py`** — `CatalystClient` with `is_enabled()`, `evaluate()`, `get_all()`, `refresh()`, `start_auto_refresh()`, `stop_auto_refresh()`, `stats`, and a context manager.
-- [x] **Safe degradation** — a failed refresh keeps serving the last good snapshot and only `AuthorizationError` propagates, because a rejected key will not fix itself. An unknown flag key, a missing snapshot, and a failed refresh all resolve to the configured `default_value`.
-- [x] **Thread safety** — the snapshot is swapped with a single attribute assignment so readers always see a consistent view; the refresh thread is a daemon and never dies on error.
-- [x] **Disk cache** — the last good snapshot is persisted under `~/.cache/catalyst` (override with `CATALYST_CACHE_DIR`) using an atomic write-then-rename, so a cold start survives an unreachable API. `cache_path=False` disables it.
+1. **Emergency kill switch — highest priority.** If it is on, **everyone gets
+   false.** Nothing else is even looked at.
+2. **Enable to all users.** If the kill switch is off and this is on, **everyone
+   gets true** — no rules, no percentage, nothing.
+3. Otherwise, **rules and percentage** decide.
 
-### 4-B · Tests
+And the percentage becomes a real share: **0% means nobody gets it, 100% means
+everybody does.**
 
-- [x] **SDK suite** (`packages/catalyst-python-sdk/tests/`) — 65 tests over the hash reference vectors, a full operator matrix, precedence, stickiness, ETag/304 handling, refresh failures, auto-refresh lifecycle, the error callback, and the disk cache.
-- [x] **Differential parity suite** (`backend/tests/test_sdk_parity.py`) — 17 tests that run the server evaluator and the SDK evaluator over the same fuzzed inputs and require identical values, reasons, and rule ids, plus a check that the SDK parses the real `/bootstrap` payload shape.
+## The full decision table
 
-### 4-C · Documentation, Demo & CI
+| Kill switch | Enable all | Rules | Percentage | Who gets the feature |
+|---|---|---|---|---|
+| **ON** | anything | anything | anything | **nobody** — everyone gets false |
+| off | **ON** | anything | anything | **everybody** — no targeting at all |
+| off | off | none | 100% | everybody |
+| off | off | none | 0% | nobody |
+| off | off | none | 50% | 50% of everyone |
+| off | off | someone matches | 50% | 50% of the matched users |
+| off | off | someone matches | 100% | the matched users, getting the rule's value |
+| off | off | **no rule matches** | anything | **nobody** — rules filtered them out |
 
-- [x] **README** — quick start, full argument table, evaluation precedence, operator list, API reference, offline behaviour, and error-handling table.
-- [x] **In-app documentation page** — `frontend/src/pages/DocsPage.tsx` serves the SDK reference at the public `/docs` route, so the landing page's "View Docs" CTA and footer "Documentation" link resolve to real content instead of 404ing. The page is also linked from the dashboard `Sidebar`, making it reachable from every `/app/**` route and not just the public marketing pages. Twelve sections with a sticky table of contents, copyable code blocks (`CodeBlock.tsx`), and configuration / operator / evaluation-reason / error tables.
-- [x] **FastAPI demo** (`examples/fastapi_demo/app.py`) — fetch-on-load startup, a background refresh thread, a flag-gated `/api/checkout` endpoint, `/api/flags` and `/api/inspect` for bulk and single-flag decisions, and a `/health` endpoint that separates "API down" from "stale but serving".
-- [x] **CI job** — `sdk-tests` runs the SDK suite on Python 3.12, verifies the wheel builds, and runs the parity suite in the backend environment.
-- [x] **PyPI publishing** — the distribution is published as **`sdk-catalyst`**, because the `catalyst-sdk` name on PyPI belongs to an unrelated project. The import name stays `catalyst_sdk`. The package uses PEP 639 licensing (`license = "MIT"` plus a bundled `LICENSE`) and ships `py.typed`.
-- [x] **Automated release workflow** (`.github/workflows/publish-sdk.yml`) — runs on pushes to `main` that touch the package. It re-runs the SDK and parity suites **before** publishing, so a broken version can never reach PyPI, and skips the upload when the version already exists so a docs-only merge cannot fail the build. Auth uses PyPI Trusted Publishing (OIDC), so no API token is stored in the repository. Releasing means bumping `version` in `pyproject.toml` and merging.
+The last row is the "filtering" behaviour: if rules are defined and you match
+none of them, you are not in the population and you do not get the feature.
 
-### 4-D · Post-release follow-ups
+## What the code does today
 
-- [x] **Server-side snapshot cache** — `/bootstrap`, `/evaluate`, and `/batch-evaluate` read a project environment's snapshot from Redis (`app/services/snapshots.py`), validated against `Environment.version` on every request. `bump_environment_versions` evicts the entry, so the cached snapshot can never outlive the version it was built from, and the TTL is only a backstop. Redis being unreachable or broken degrades to PostgreSQL rather than failing the request.
-- [x] **Read as you evaluate** — the SDK no longer fetches in its constructor. Every check makes a conditional request (`If-None-Match`, so an unchanged environment costs a `304`) and then decides locally. Concurrent checks collapse into one read, a failed read backs off for `failure_backoff` seconds instead of adding its timeout to every call, and `refresh_on_evaluate=False` restores the in-memory-only behaviour for callers who want it.
-- [x] **Hosted API by default** — `host` now defaults to the deployed API, overridable per client with `host=` or per process with `CATALYST_HOST`.
-- [x] **Debounced canary rollout slider** — the slider commits on a debounce (and flushes on release, keyboard, or blur) instead of issuing a `PATCH` per pixel of drag, with optimistic local state guarded against out-of-order responses.
-- [x] **Searchable docs** — the `/docs` page has a search box with a Go button, a match count, and Escape to clear. Matching runs over each section's title, summary, and keywords (`frontend/src/lib/docsSearch.ts`), and the content was brought in line with the read model, the host override, and the server-side cache.
+`backend/app/services/evaluator.py:140-161`:
 
-### Bug found and fixed by the parity suite
+```python
+if not enabled:
+    return default_value, "KILL_SWITCH_ACTIVE", None            # :141
 
-The differential suite surfaced that `app/services/evaluator.py::evaluate_flag` **never sorted rules by priority**, relying on every caller to pre-sort. With unsorted input the server and SDK disagreed about which rule won. The server now sorts internally, so the documented "first match by ascending priority wins" contract holds regardless of caller and the two implementations agree for any input order. This was a no-op for existing callers, which already passed sorted lists.
+for rule in sorted(rules, key=lambda item: item.get("priority", 0)):
+    if match_rule(rule.get("conditions", []), attributes):
+        return rule.get("serve", True), "RULE_MATCH", rule.get("id")   # :152
 
----
+if percentage > 0:                                              # :155
+    if get_user_bucket(flag_key, user_id) < percentage:
+        return True, "PERCENTAGE_ROLLOUT", None                 # :157
 
-## Completed in Initialization Step
+return default_value, "DEFAULT_VALUE", None                     # :161
+```
 
-- [x] Docker Compose setup with PostgreSQL 16 Alpine & Redis 7 Alpine
-- [x] Backend FastAPI application with `uv` package management
-- [x] Core database models (`Organization`, `Project`, `Environment`, `Flag`, `FlagEnvState`, `TargetingRule`, `ApiKey`, `AuditLog`)
-- [x] Deterministic Murmur3 sticky percentage rollout engine
-- [x] Emergency Kill Switch with instant short-circuit override
-- [x] Base REST APIs: `/healthz`, `/flags`, `/evaluate`, `/batch-evaluate`, `/bootstrap` (ETag/304), `/audit`
-- [x] React + Vite + TypeScript dashboard with live health status, environment switcher, kill switches, and evaluation playground
-- [x] Automated backend test suite (18 passing unit & integration tests, including authentication and authorization)
+Four things are wrong with this against the table above:
+
+1. **A matching rule short-circuits everything.** The `return` at line 152 means
+   the percentage at line 155 is **never reached**. Rules and percentage are two
+   separate overrides, not a filter followed by a split.
+2. **0% and 100% behave identically.** Both skip line 155 and fall through to
+   `default_value`. The slider's ends mean the same thing.
+3. **`default_value` is a third source of truth.** The fallthrough value is
+   whatever the user picked when creating the flag, not something the rules or the
+   slider control.
+4. **The SDK has an identical copy** at
+   `packages/catalyst-python-sdk/src/catalyst_sdk/evaluator.py:220-254`, held in
+   agreement by a differential test suite
+   (`backend/tests/test_sdk_parity.py`) that fuzzes both against each other.
+
+## What to change
+
+### 2-A · Add the "enable to all users" switch 🗄️
+
+- [ ] Add `enable_all: Boolean` to `FlagEnvState` (`models.py:169-196`).
+- [ ] **Default it to `false`** so no existing flag changes behaviour the moment
+      this deploys.
+- [ ] Add it to the bootstrap snapshot payload so the SDK can evaluate it locally
+      without a server round trip.
+- [ ] Migration `003_enable_all.sql`.
+
+### 2-B · Change the percentage to a real share 🗄️
+
+- [ ] `FlagEnvState.percentage` becomes the share of eligible users who receive
+      the feature. **0% serves nobody.** Remove the `if percentage > 0` guard.
+- [ ] Change the column default from `0` to `100`.
+- [ ] The migration must **explicitly set the percentage on every existing row**
+      rather than relying on the default, so that no flag changes behaviour:
+      - rows where `default_value=False` → set `percentage=0` (preserves today's
+        behaviour: off)
+      - rows where `default_value=True` → set `percentage=100` (preserves today's
+        behaviour: on)
+      - rows with a non-zero percentage → leave alone
+- [ ] Write the migration so it is idempotent and can be run twice safely.
+
+### 2-C · Remove `default_value` 🗄️
+
+Under the new model nothing needs it: the kill switch means false, and the
+percentage means true. Keeping a field with one vestigial meaning is how the
+current confusion happened.
+
+- [ ] Drop `Flag.default_value` (`models.py:147`).
+- [ ] Remove it from `FlagCreate` (`schemas.py:277`), `FlagUpdate` (`:281`), and
+      `FlagResponse` (`:290`).
+- [ ] Remove the on/off choice from the create-flag form
+      (`frontend/src/components/FlagCreatePanel.tsx`) and from `api.ts`.
+- [ ] Remove `defaultValue` from the bootstrap payload and from
+      `packages/catalyst-python-sdk/src/catalyst_sdk/snapshot.py:22`.
+- [ ] Update the SDK evaluator, `DocsPage.tsx`, and the SDK README.
+- [ ] Migration to drop the column, after 2-B has read it.
+
+### 2-D · Rewrite `evaluate_flag` 🔴
+
+New order, matching the table above:
+
+```python
+def evaluate_flag(flag, rules, user_id, attributes, percentage, enable_all):
+    if not enabled:                                   # 1. kill switch, highest priority
+        return False, "KILL_SWITCH_ACTIVE", None
+
+    if enable_all:                                    # 2. everyone, no targeting
+        return True, "ENABLE_ALL_USERS", None
+
+    matched = first matching rule by ascending priority # 3. who is in the population
+
+    if matched is None and rules_exist:
+        return False, "DEFAULT_VALUE", None           #    filtered out
+
+    bucket = get_user_bucket(flag_key, user_id)       # 4. split the population
+
+    if bucket < percentage:
+        return (matched.serve if matched else True), \
+               "RULE_AND_ROLLOUT" if matched else "PERCENTAGE_ROLLOUT", \
+               matched.id if matched else None
+
+    return (not (matched.serve if matched else True)), \
+           "RULE_OUTSIDE_ROLLOUT" if matched else "PERCENTAGE_OUTSIDE_ROLLOUT", \
+           matched.id if matched else None
+```
+
+- [ ] The percentage applies to the **filtered** population, exactly as specified.
+- [ ] A matching rule **and** a percentage combine rather than override: the
+      percentage splits the matched group, and those outside it get the **opposite**
+      of the rule's value.
+- [ ] The same `bucket` is used everywhere. It is
+      `murmur3(f"{flag_key}:{user_id}") % 100` (`evaluator.py:52-58`) — a fixed
+      number per user, independent of the percentage. So **raising the percentage
+      only ever adds users; it can never remove one.** That is what makes a gradual
+      rollout safe. It is not obvious from reading the code, so it needs an
+      explicit test.
+- [ ] Reason codes change. Remove `RULE_MATCH`; add `ENABLE_ALL_USERS`,
+      `RULE_AND_ROLLOUT`, `RULE_OUTSIDE_ROLLOUT`, `PERCENTAGE_OUTSIDE_ROLLOUT`.
+      An operator debugging a rollout needs to tell "your rule did not match" and
+      "your rule matched and you fell outside the percentage" apart — two very
+      different problems.
+- [ ] `DEFAULT_VALUE` is kept, but it now only ever means `false`.
+
+### 2-E · The SDK must fail closed 🔴
+
+If the SDK cannot reach Catalyst, it serves `false`. Always.
+
+- [ ] Remove the last-good-snapshot fallback in
+      `packages/catalyst-python-sdk/src/catalyst_sdk/client.py` — a failed read
+      inside `evaluate()` must resolve to `false`, not to the in-memory snapshot.
+- [ ] Remove the disk-cache fallback (`client.py:518-535`) and
+      `~/.cache/catalyst` entirely, along with `clear_cache()`, `cache_path`, and
+      `CATALYST_CACHE_DIR`.
+- [ ] Keep the conditional read. A `304 Not Modified` is a **successful** read —
+      the snapshot in memory stays valid and keeps serving. Only genuine failures
+  flip to false.
+- [ ] Keep the single-flight and failure-backoff behaviour. Unchanged.
+- [ ] `default_value` as a client constructor argument
+      (`client.py:129`, default `False`) also disappears with 2-C.
+- [ ] Update `AGENTS.md`, which currently documents the disk cache as a feature.
+- [ ] Update the SDK tests that assert the cached fallback, and the README section
+      describing it.
+
+### 2-F · Mirror everything in the SDK 🔴
+
+- [ ] Same rewrite in
+      `packages/catalyst-python-sdk/src/catalyst_sdk/evaluator.py`.
+- [ ] Export the new reason constants from
+      `packages/catalyst-python-sdk/src/catalyst_sdk/__init__.py`.
+- [ ] Parse the new snapshot fields in
+      `packages/catalyst-python-sdk/src/catalyst_sdk/snapshot.py`.
+- [ ] Extend `backend/tests/test_sdk_parity.py` so the differential fuzz covers
+      **both switches and rules and a percentage on the same flag**, not each in
+      isolation. This suite is the only thing guaranteeing the two
+      implementations never drift apart.
+
+### 2-G · Tests that assert the old behaviour must be rewritten 🔴
+
+These currently pass and will start failing. That is expected, not a surprise:
+
+- [ ] `backend/tests/test_evaluator.py:32` — rule targeting
+- [ ] `backend/tests/test_evaluator.py:72` — percentage distribution
+- [ ] `backend/tests/test_evaluator.py:138` —
+      `test_rules_beat_the_percentage_rollout` asserts the **old** short-circuit
+- [ ] `packages/catalyst-python-sdk/tests/test_evaluator.py:138` — same test name
+- [ ] Any SDK test asserting the disk-cache fallback (2-E)
+- [ ] The new tests: both switches at once, 0% and 100% endpoints, the flip
+      behaviour, monotonicity, and the filtered-out case
+
+### 2-H · Frontend 🔴
+
+Everything here encodes the old behaviour and will be wrong after 2-D:
+
+- [ ] `frontend/src/components/FlagCard.tsx` — add the "Enable to all users"
+      control. Both switches must be visible and their priority obvious, since one
+      silently overrides the other.
+- [ ] `frontend/src/components/RolloutSlider.tsx` — the disabled state currently
+      keys off the kill switch only (`:37-40` in `FlagCard`). Both switches now
+      bypass the slider.
+- [ ] `frontend/src/components/EvalPlayground.tsx` — `REASON_LABELS` (`:12-18`),
+      which turns a reason code into the sentence a user reads.
+- [ ] `frontend/src/lib/attributeCatalog.ts` — `previewRuleMatch` (`:364`), the
+      client-side copy of the evaluator behind the rule builder's match preview.
+- [ ] `frontend/src/components/RuleBuilder.tsx` — the preview's closing line
+      ("Nothing matches, so the percentage rollout and then the flag default
+      decide") is now wrong; it must explain the real outcome.
+- [ ] `frontend/src/components/FlagCreatePanel.tsx` — drop the `default_value`
+      toggle (2-C).
+- [ ] `frontend/src/api.ts` — remove `default_value`; add `enable_all` and the
+      new reason codes.
+- [ ] `frontend/src/test/ruleBuilder.test.tsx` (450 lines) and
+      `rolloutSlider.test.tsx` will need updating.
+
+**On the match preview and hashing:** showing "you are inside/outside the rollout"
+for the specific user in the playground would require porting MurmurHash3 to
+TypeScript and keeping it byte-identical to the server's. **Skip it.** The preview
+explains the rules and percentage in general terms, and the playground — which
+calls the real `/evaluate` endpoint — gives the definitive answer for the specific
+user. Revisit only if users need it directly.
+
+- [ ] Enforce the 25-condition limit in the builder UI. The server caps at 25
+      (`schemas.py:227`) but the "Add condition" button
+      (`RuleBuilder.tsx:517-519`) is unlimited, so you can build something that
+      looks valid and then fail on save.
+- [ ] Use the `priority` field the API already accepts (`schemas.py:231`, `:241`)
+      and the builder never sends — ordering is up/down buttons only.
+- [ ] Add rule labels. `TargetingRule` has no name (`models.py:199-220`), so the
+      builder shows "Rule #3".
+
+### 2-I · Documentation 🔴
+
+- [ ] `backend/app/schemas/schemas.py` — the `reason` documentation on
+      `EvaluateResponse` (`:86-91`).
+- [ ] `frontend/src/pages/DocsPage.tsx` — the precedence section.
+- [ ] `packages/catalyst-python-sdk/README.md` — same, hand-synced.
+- [ ] `AGENTS.md` — the evaluation and SDK sections describe the old model and the
+      disk cache.
+
+### Done when
+
+- [ ] The decision table above is reproduced exactly by tests, row by row.
+- [ ] The server, the SDK, the parity suite, the frontend preview, and all three
+      sets of docs describe the same behaviour.
+- [ ] A flag with both switches off, a rule matching, and 40% serves the rule's
+      value to 40% of matched users and the opposite value to the rest.
+- [ ] Raising a percentage never removes a user.
+- [ ] An unreachable Catalyst serves `false` from the SDK, with no cached fallback
+      anywhere in the code.
+- [ ] No production flag changed behaviour as a side effect of the migration.
