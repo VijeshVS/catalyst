@@ -87,6 +87,6 @@ describe('FlagCard default value toggle', () => {
     view.rerender(<FlagCard flag={{ ...flag, default_value: true }} projectData={projectData} />);
 
     expect(screen.getByText('Default: true')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /default: true/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /default: true/i })).toHaveAttribute('aria-pressed', 'true');
   });
 });
