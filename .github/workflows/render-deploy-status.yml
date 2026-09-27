@@ -1,0 +1,168 @@
+name: Render Deploy Status
+
+# Publishes the real state of the Render deploy of `catalyst-api` as a commit
+# status (`render/deploy`) on the SHA that was actually deployed, and as a
+# workflow badge on `main`.
+#
+# This deliberately does NOT run on `pull_request`. Render only auto-deploys
+# `main` (see render.yaml), so a PR branch has no Render deploy to report; a
+# check here would describe main's deploy while appearing to describe the PR.
+# Vercel shows a check on every PR because it builds a preview of the branch —
+# Render's equivalent is a service preview, which is a deploy, not a status.
+#
+# Requires one repository secret: RENDER_API_KEY (an account API key, value
+# starts with `rnd_`, from Render dashboard > Account Settings > API Keys).
+# RENDER_SERVICE_ID is an optional override; the service is otherwise found by
+# name from render.yaml.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: render-deploy-status-${{ github.ref }}
+  # Never cancel a poll mid-deploy: the run is the badge, and losing it would
+  # leave the last recorded state stale without saying so.
+  cancel-in-progress: false
+
+jobs:
+  render-deploy:
+    name: Render Deploy (catalyst-api)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Poll the Render API and publish the deploy status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          SERVICE_NAME: catalyst-api
+          HEAD_SHA: ${{ github.sha }}
+          IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+
+          CONTEXT="render/deploy"
+          DASHBOARD="https://dashboard.render.com"
+          POLL_INTERVAL=15
+          POLL_ATTEMPTS=40   # 40 * 15s = 10 minutes, past a free-tier cold start.
+
+          fail() { echo "::error::$*"; exit 1; }
+
+          if [ -z "${RENDER_API_KEY:-}" ]; then
+            fail "RENDER_API_KEY is not set. Create an account API key (Render dashboard > Account Settings > API Keys) and add it as a repository secret named RENDER_API_KEY."
+          fi
+
+          api() {
+            curl -sS -f --max-time 30 \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" \
+              "$1"
+          }
+
+          # Map a Render deploy status onto a GitHub commit status state. An
+          # unrecognised status resolves to `error` rather than `success`, so
+          # this can never report a deploy as live that it did not understand.
+          state_for() {
+            case "$1" in
+              live)
+                echo success ;;
+              created | queued | build_in_progress | pre_deploy_in_progress | update_in_progress | cleanup_in_progress)
+                echo pending ;;
+              build_failed | pre_deploy_failed | update_failed | rollback_failed | canceled | deactivated)
+                echo failure ;;
+              *)
+                echo error ;;
+            esac
+          }
+
+          post_status() {
+            gh api "repos/${GITHUB_REPOSITORY}/statuses/$1" \
+              -f state="$2" \
+              -f context="${CONTEXT}" \
+              -f description="$3" \
+              -f target_url="${DASHBOARD}/web/${SERVICE_ID}" >/dev/null
+            echo "::notice::${CONTEXT} -> $2 ($3)"
+          }
+
+          SERVICE_ID="${RENDER_SERVICE_ID:-}"
+          if [ -z "${SERVICE_ID}" ]; then
+            services=$(api "https://api.render.com/v1/services?name=${SERVICE_NAME}&limit=1") \
+              || fail "Render rejected the RENDER_API_KEY request to /v1/services. It must be an account API key copied with no surrounding whitespace."
+            # Render has served list endpoints as both {"service":[...]} and
+            # [{"service":[...]}]; the recursive walk accepts either shape.
+            SERVICE_ID=$(jq -r --arg n "${SERVICE_NAME}" \
+              '[.. | objects | select(.name? == $n) | .id? // empty][0] // empty' <<<"${services}")
+            [ -n "${SERVICE_ID}" ] \
+              || fail "The API key is valid but no Render service named '${SERVICE_NAME}' is visible to it. It may belong to a different account or team."
+          fi
+          echo "::notice::Render service ${SERVICE_NAME} = ${SERVICE_ID}"
+
+          # Deploy objects are the only entries carrying both `commit` and `status`.
+          newest_deploy() {
+            jq -c --arg sha "${HEAD_SHA}" \
+              '[.. | objects | select(.commit? and .status?) | select(.commit.id? == $sha)] | .[0] // empty' \
+              <<<"$1"
+          }
+
+          newest_deploy_any_sha() {
+            jq -c '[.. | objects | select(.commit? and .status?)] | .[0] // empty' <<<"$1"
+          }
+
+          # A manual run asks "is the API up right now?", not "did this commit
+          # deploy?". Answer from the newest deploy rather than waiting for one.
+          if [ "${IS_DISPATCH}" = "true" ]; then
+            deploys=$(api "https://api.render.com/v1/services/${SERVICE_ID}/deploys?limit=1") \
+              || fail "Render API /deploys request failed."
+            deploy=$(newest_deploy_any_sha "${deploys}")
+            [ -n "${deploy}" ] || fail "Render returned no deploys for ${SERVICE_NAME}."
+            status=$(jq -r '.status' <<<"${deploy}")
+            post_status "${HEAD_SHA}" "$(state_for "${status}")" "Render: ${status}"
+            [ "$(state_for "${status}")" = success ] || exit 1
+            exit 0
+          fi
+
+          # A push to main races Render's own deploy trigger, so the deploy for
+          # this SHA may not exist yet. Wait for it, then wait for it to settle.
+          deploy=""
+          for _ in $(seq 1 "${POLL_ATTEMPTS}"); do
+            deploys=$(api "https://api.render.com/v1/services/${SERVICE_ID}/deploys?limit=20")
+            deploy=$(newest_deploy "${deploys}")
+            if [ -n "${deploy}" ]; then break; fi
+            echo "No Render deploy for ${HEAD_SHA} yet; retrying in ${POLL_INTERVAL}s."
+            sleep "${POLL_INTERVAL}"
+          done
+
+          [ -n "${deploy}" ] \
+            || fail "Render never started a deploy for ${HEAD_SHA} within $((POLL_ATTEMPTS * POLL_INTERVAL))s. Check the service's deploy triggers in the Render dashboard."
+
+          sha=$(jq -r '.commit.id' <<<"${deploy}")
+          pending_posted=0
+          for _ in $(seq 1 "${POLL_ATTEMPTS}"); do
+            status=$(jq -r '.status' <<<"${deploy}")
+            state=$(state_for "${status}")
+            echo "Render deploy status: ${status}"
+
+            if [ "${state}" != pending ] || [ "${pending_posted}" -eq 0 ]; then
+              post_status "${sha}" "${state}" "Render: ${status}"
+              [ "${state}" = pending ] && pending_posted=1
+            fi
+            [ "${state}" != pending ] && break
+
+            sleep "${POLL_INTERVAL}"
+            deploys=$(api "https://api.render.com/v1/services/${SERVICE_ID}/deploys?limit=20")
+            next=$(newest_deploy "${deploys}")
+            # A newer deploy for the same SHA supersedes this one.
+            [ -n "${next}" ] && deploy="${next}"
+          done
+
+          final_state=$(state_for "$(jq -r '.status' <<<"${deploy}")")
+          if [ "${final_state}" = pending ]; then
+            fail "The Render deploy for ${sha} was still $(jq -r '.status' <<<"${deploy}") after $((POLL_ATTEMPTS * POLL_INTERVAL))s."
+          fi
+          [ "${final_state}" = success ] || exit 1
