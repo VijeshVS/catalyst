@@ -17,6 +17,7 @@ from app.schemas.schemas import (
     FlagResponse,
     FlagStateSchema,
     FlagStateUpdate,
+    FlagUpdate,
     RuleCreate,
     RuleReorder,
     RuleUpdate,
@@ -159,6 +160,68 @@ async def get_flag(
 ):
     project = await get_project_or_404(db, project_id, current_user.id)
     return await _get_flag_in_project(db, project.id, flag_key)
+
+
+@router.patch("/{flag_key}", response_model=FlagResponse)
+async def update_flag(
+    flag_key: str,
+    data: FlagUpdate,
+    project_id: str = PROJECT_ID_QUERY,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update a flag's definition, including its safe default value."""
+    project = await get_project_or_404(db, project_id, current_user.id)
+    flag = await _get_flag_in_project(db, project.id, flag_key)
+
+    before = {
+        "name": flag.name,
+        "description": flag.description,
+        "default_value": flag.default_value,
+        "archived": flag.archived,
+    }
+    if data.name is not None:
+        flag.name = data.name
+    if data.description is not None:
+        flag.description = data.description
+    if data.default_value is not None:
+        flag.default_value = data.default_value
+    if data.archived is not None:
+        flag.archived = data.archived
+
+    after = {
+        "name": flag.name,
+        "description": flag.description,
+        "default_value": flag.default_value,
+        "archived": flag.archived,
+    }
+    if after == before:
+        return await _get_flag_in_project(db, project.id, flag_key)
+
+    # The default value is part of every environment's snapshot -> bust all ETags.
+    await bump_environment_versions(db, project.id)
+
+    db.add(
+        AuditLog(
+            org_id=project.org_id,
+            project_id=project.id,
+            flag_id=flag.id,
+            actor=current_user.email,
+            user_id=current_user.id,
+            user_email=current_user.email,
+            action="flag.updated",
+            before=before,
+            after=after,
+        )
+    )
+    await db.commit()
+
+    result = await db.execute(
+        select(Flag)
+        .where(Flag.id == flag.id)
+        .options(selectinload(Flag.states), selectinload(Flag.rules))
+    )
+    return result.scalar_one()
 
 
 @router.patch("/{flag_key}/environments/{env}", response_model=FlagStateSchema)

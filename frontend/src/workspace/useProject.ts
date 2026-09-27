@@ -13,6 +13,7 @@ import {
   reorderFlagRules as reorderFlagRulesRequest,
   updateFlagEnvState,
   updateFlagRule as updateFlagRuleRequest,
+  updateFlag as updateFlagRequest,
 } from '../api';
 import type {
   Environment,
@@ -41,6 +42,7 @@ export interface ProjectData {
   refresh: () => Promise<void>;
   toggleKillSwitch: (flag: Flag) => Promise<void>;
   updateRollout: (flag: Flag, percentage: number) => Promise<void>;
+  updateDefaultValue: (flag: Flag, defaultValue: boolean) => Promise<void>;
   createFlag: (data: {
     key: string;
     name: string;
@@ -193,6 +195,19 @@ export function useProject(projectId: string | undefined): ProjectData {
       }
     },
     [activeEnv, load, projectId],
+  );
+
+  const updateDefaultValue = useCallback(
+    async (flag: Flag, defaultValue: boolean) => {
+      if (!projectId) return;
+      try {
+        await updateFlagRequest(projectId, flag.key, { default_value: defaultValue });
+        await load();
+      } catch (requestError) {
+        setError(getErrorMessage(requestError, 'Error updating default value'));
+      }
+    },
+    [load, projectId],
   );
 
   const createFlag = useCallback(
@@ -354,6 +369,7 @@ export function useProject(projectId: string | undefined): ProjectData {
       refresh,
       toggleKillSwitch,
       updateRollout,
+      updateDefaultValue,
       createFlag,
       createEnvironment,
       createRule,
@@ -375,6 +391,7 @@ export function useProject(projectId: string | undefined): ProjectData {
       refresh,
       toggleKillSwitch,
       updateRollout,
+      updateDefaultValue,
       createFlag,
       createEnvironment,
       createRule,

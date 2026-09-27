@@ -450,7 +450,10 @@ textarea.form-input { resize: vertical; line-height: 1.6; }
 .flag-title-area { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .flag-name { margin: 0; color: var(--text-primary); font: 700 18px var(--font-display); }
 .flag-key-badge { padding: 3px 8px; border: 1px solid var(--border-color); border-radius: 4px; color: var(--gold-primary); background: var(--gold-faint); font-size: 10px; }
-.flag-default-label { color: var(--text-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .4px; }
+.default-value-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--border-color); border-radius: 5px; background: transparent; color: var(--text-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .4px; cursor: pointer; transition: color .18s, border-color .18s; }
+.default-value-toggle:hover { border-color: var(--gold-primary); color: var(--gold-primary); }
+.default-value-toggle.on { border-color: var(--gold-primary); color: var(--gold-primary); }
+.default-value-icon { font-size: 10px; }
 .flag-desc { margin: 8px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
 .kill-switch-btn { display: inline-flex; align-items: center; gap: 7px; min-height: 35px; padding: 7px 11px; border: 1px solid; border-radius: 7px; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .kill-switch-btn.active { border-color: rgba(39,174,96,.35); color: var(--success); background: var(--success-faint); box-shadow: 0 2px 11px var(--success-glow); }

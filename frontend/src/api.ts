@@ -461,6 +461,21 @@ export async function updateFlagEnvState(
   );
 }
 
+export async function updateFlag(
+  projectId: string,
+  flagKey: string,
+  data: { default_value?: boolean },
+): Promise<Flag> {
+  return jsonRequest<Flag>(
+    `${API_BASE}/flags/${encodeURIComponent(flagKey)}?project_id=${encodeURIComponent(projectId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Targeting rules (environment scoped, ordered by priority)
 // ---------------------------------------------------------------------------
