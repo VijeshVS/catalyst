@@ -2,7 +2,7 @@ name: PR Hygiene
 
 # Fails a pull request that does not follow the repository's stated conventions.
 #
-#   PR title      release(backend|frontend|docs): <description>
+#   PR title      release(<any scope>): <description>
 #   PR body       must not be empty
 #   Every commit  <type>(<any scope>): <description>   (Conventional Commits)
 #
@@ -43,10 +43,11 @@ jobs:
         run: |
           set -uo pipefail
 
-          # A PR is a release of work into main, so the title carries the
-          # audience-facing change. Scope is one of the three deployable
-          # surfaces; ci/infra/sdk/visual work is not currently representable.
-          TITLE_RE='^release\((backend|frontend|docs)\): .+$'
+          # A PR is a release of work into main, so the type is fixed to
+          # `release`. The scope is free-form, because the repository does
+          # work outside backend/frontend/docs — ci, sdk, visual, roadmap — and
+          # a rule with no title for a real change just gets worked around.
+          TITLE_RE='^release\([a-z0-9._/-]+\): .+$'
 
           # Conventional Commits. Any scope, standard types, plus `release`
           # so a commit inside a release PR can repeat the PR's type.
@@ -56,9 +57,9 @@ jobs:
           failed=0
 
           if [[ "${PR_TITLE}" =~ ${TITLE_RE} ]]; then
-            echo "::notice::PR title matches release(<backend|frontend|docs>): <description>"
+            echo "::notice::PR title matches release(<any scope>): <description>"
           else
-            echo "::error file=.github/workflows/pr-hygiene.yml::PR title must match 'release(backend): <description>', 'release(frontend): <description>' or 'release(docs): <description>'. Got: '${PR_TITLE}'"
+            echo "::error file=.github/workflows/pr-hygiene.yml::PR title must match 'release(<any scope>): <description>', e.g. 'release(backend): add the thing'. Got: '${PR_TITLE}'"
             failed=1
           fi
 
