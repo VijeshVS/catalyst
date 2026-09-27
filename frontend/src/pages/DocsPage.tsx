@@ -111,7 +111,7 @@ else:
 const HOSTS = `# Point one client somewhere else (staging, self-hosted, a tunnel).
 client = CatalystClient(
     sdk_key=..., project_id=...,
-    host="https://catalyst-api.onrender.com",
+    host="https://catalyst-api-uakz.onrender.com",
 )
 
 # Or set the default for a whole process.

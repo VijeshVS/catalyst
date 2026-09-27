@@ -129,7 +129,7 @@ export interface AuditLog {
  * Defaults to the relative `/api/v1`, which the Vite dev server proxies to a
  * local backend. When the frontend is deployed separately from the API (for
  * example Vercel in front of a Render web service), set `VITE_API_BASE_URL` to
- * the backend's absolute origin, e.g. `https://catalyst-api.onrender.com/api/v1`.
+ * the backend's absolute origin, e.g. `https://catalyst-api-uakz.onrender.com/api/v1`.
  */
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
 
