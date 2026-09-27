@@ -20,9 +20,18 @@ export function FlagCard({ flag, projectData }: FlagCardProps) {
           <div className="flag-title-area">
             <h3 className="flag-name">{flag.name}</h3>
             <span className="flag-key-badge">{flag.key}</span>
-            <span className="flag-default-label">
-              Default: {flag.default_value ? 'true' : 'false'}
-            </span>
+            <button
+              type="button"
+              className={`default-value-toggle${flag.default_value ? ' on' : ''}`}
+              onClick={() => void projectData.updateDefaultValue(flag, !flag.default_value)}
+              title="Safe default served when the rollout is 0% or the kill switch is active"
+              aria-pressed={flag.default_value}
+            >
+              <span className="default-value-icon" aria-hidden="true">
+                {flag.default_value ? '◈' : '○'}
+              </span>
+              <span>Default: {flag.default_value ? 'true' : 'false'}</span>
+            </button>
           </div>
           {flag.description && <p className="flag-desc">{flag.description}</p>}
         </div>
