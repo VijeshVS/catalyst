@@ -157,11 +157,45 @@ environment. It has **no timestamps at all**.
       use the real newest `Flag.updated_at` instead of `max(flag.created_at)`.
 - [ ] Test: change a rollout, confirm the project's `updated_at` moved.
 
-### Not doing now
+### 1-D · Remove the `archived` column 🗄️
 
-`Flag` has an `archived` column and an `?archived=true` filter, but **no API call
-can set it** — the switch has no button. There is no archive or delete concept
-yet. Left untouched and documented so it is not mistaken for working functionality.
+**Decision: delete the column. Archiving is not a requirement and will not be
+built later.** It is not being deferred — there is no archive or delete concept
+in the product, no plan for one, and no button anywhere in the UI. Keeping the
+column would ship a half-feature that reads like working functionality and
+cannot be reached.
+
+`Flag.archived` is a write-never field. `FlagUpdate` (`schemas.py:282`) is the
+only schema that accepts it, it is used by no endpoint, and `FlagCreate` has no
+such field. Two read paths filter on it anyway:
+
+- [ ] Drop `Flag.archived` (`models.py:148`) and the `ix_flag_project_archived`
+      index that pairs it with `project_id` (`models.py:165`).
+- [ ] Drop the `archived` query parameter and the `Flag.archived == archived`
+      filter from `list_flags` (`api/v1/flags.py:84`, `:91`). The endpoint
+      already behaves as if nothing is ever archived, so the list keeps
+      returning everything it returns today.
+- [ ] Remove `archived` from `FlagResponse` (`schemas.py:294`). Delete
+      `FlagUpdate` (`schemas.py:282`) and its export in
+      `backend/app/schemas/__init__.py` outright rather than stripping one field
+      out of a schema nothing references.
+- [ ] `services/snapshots.py:122` loses its `Flag.archived == False` clause.
+- [ ] `api/v1/organizations.py:46` — `flag_count` becomes a plain count, with
+      no `if not flag.archived` test.
+- [ ] `frontend/src/api.ts:92` — remove `archived` from the `Flag` type.
+- [ ] Migration `004_drop_flag_archived.sql` (numbered after Phase 2's
+      `003_enable_all.sql`; the two are independent, so it can run first if the
+      numbering matters). Startup `create_all()` only ever
+      creates missing tables, so it will not drop the column from Neon; apply
+      the migration by hand, same as 1-A.
+- [ ] Code changes and the migration ship in **one** deploy window. A deploy
+      that drops the column while a query still filters on it (or the reverse)
+      breaks the flag list and the bootstrap snapshot in between.
+- [ ] Fix the three docs that promise archiving, since they describe behaviour
+      that will not exist: `docs/PRD.md:89`, `docs/TECH_SPEC.md:103`, `:153`,
+      `:185`, `:270`, and `docs/USE_CASES.md:165`.
+- [ ] `frontend/src/test/ruleBuilder.test.tsx:30` sets `archived: false` on its
+      fixture flag; drop the field.
 
 ---
 
