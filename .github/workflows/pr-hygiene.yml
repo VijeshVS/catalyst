@@ -1,0 +1,113 @@
+name: PR Hygiene
+
+# Fails a pull request that does not follow the repository's stated conventions.
+#
+#   PR title      release(backend|frontend|docs): <description>
+#   PR body       must not be empty
+#   Every commit  <type>(<any scope>): <description>   (Conventional Commits)
+#
+# Triggered on opened/edited/synchronize/reopened so that fixing the title,
+# filling in the body, or adding a commit re-runs the check.
+#
+# Deliberately hand-written rather than delegated to a third-party action: this
+# check gates every merge, and it needs no third-party code or token scope to do
+# what a few lines of regex do. It reads the PR through the GitHub API rather
+# than checking out untrusted branch code, so it is safe on forks and needs no
+# write permission.
+#
+# A failing check is only advisory until this is marked as a required status
+# check in the repository's branch protection rules.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  hygiene:
+    name: PR Title, Body & Commits
+    runs-on: ubuntu-latest
+    steps:
+      # The PR title and body are attacker-controlled. They arrive as env vars
+      # and are never interpolated into the script body, so a crafted title
+      # cannot execute anything here.
+      - name: Validate the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+
+          # A PR is a release of work into main, so the title carries the
+          # audience-facing change. Scope is one of the three deployable
+          # surfaces; ci/infra/sdk/visual work is not currently representable.
+          TITLE_RE='^release\((backend|frontend|docs)\): .+$'
+
+          # Conventional Commits. Any scope, standard types, plus `release`
+          # so a commit inside a release PR can repeat the PR's type.
+          TYPES='build|chore|ci|docs|feat|fix|perf|refactor|release|revert|style|test'
+          COMMIT_RE="^(${TYPES})(\([a-z0-9._/-]+\))?!?: .+$"
+
+          failed=0
+
+          if [[ "${PR_TITLE}" =~ ${TITLE_RE} ]]; then
+            echo "::notice::PR title matches release(<backend|frontend|docs>): <description>"
+          else
+            echo "::error file=.github/workflows/pr-hygiene.yml::PR title must match 'release(backend): <description>', 'release(frontend): <description>' or 'release(docs): <description>'. Got: '${PR_TITLE}'"
+            failed=1
+          fi
+
+          # A body of only whitespace is an empty description. Template comment
+          # blocks are stripped so an untouched template cannot pass this.
+          meaningful=$(sed -e '/<!--/,/-->/d' <<<"${PR_BODY:-}" | tr -d '[:space:]')
+          if [ -n "${meaningful}" ]; then
+            echo "::notice::PR description is present"
+          else
+            echo "::error file=.github/workflows/pr-hygiene.yml::PR description must not be empty. Explain what changed and why; the title is not a description."
+            failed=1
+          fi
+
+          # Every commit in the PR, oldest first, so the first bad one is easy
+          # to find. Merge commits are skipped: merging main into a branch is
+          # routine and re-running `git merge` produces a subject nobody
+          # controls, so failing on it would be a false positive.
+          #
+          # jq reduces each message to its first line, so one record is one
+          # commit. Without that, `read` would split a commit that has a body
+          # into several fake commits and report body text as a bad subject.
+          #
+          # `|| [[ -n "${subject}" ]]` matters: `read` returns non-zero on a
+          # final line with no trailing newline, which would silently skip the
+          # last commit — and with a single-commit PR, every commit.
+          total=0
+          bad=0
+          while IFS= read -r subject || [[ -n "${subject}" ]]; do
+            total=$((total + 1))
+            if [[ "${subject}" =~ ^Merge[[:space:]] ]]; then
+              echo "::notice::commit ${total} ignored (merge commit): ${subject}"
+            elif [[ "${subject}" =~ ${COMMIT_RE} ]]; then
+              echo "::notice::commit ${total} ok: ${subject}"
+            else
+              echo "::error file=.github/workflows/pr-hygiene.yml::commit ${total} title must be '<type>(<scope>): <description>' with a type from ${TYPES}. Got: '${subject}'"
+              bad=$((bad + 1))
+            fi
+          done < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" --jq '.[].commit.message | split("\n")[0]')
+
+          if [ "${total}" -eq 0 ]; then
+            echo "::error::Could not read the commits of PR #${PR_NUMBER}."
+            failed=1
+          elif [ "${bad}" -gt 0 ]; then
+            echo "::error::${bad} of ${total} commit(s) do not follow Conventional Commits."
+            failed=1
+          fi
+
+          if [ "${failed}" -ne 0 ]; then
+            echo "::error::PR hygiene check failed. See the annotations on this run for each violation."
+            exit 1
+          fi
+          echo "PR #${PR_NUMBER} passes: title, description and ${total} commit(s) are all conventional."
