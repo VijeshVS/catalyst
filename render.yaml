@@ -25,6 +25,20 @@ services:
     # Free instances spin down after 15 minutes idle, so a cold start can take
     # about a minute. Allow generous timeouts.
     autoDeployTrigger: commit
+    # Only the API's own source redeploys it. A frontend, docs, or visual
+    # commit leaves the running instance untouched, which is the point: the
+    # service spins down after 15 minutes idle, so a needless deploy burns
+    # free-tier minutes and forces a cold start.
+    #
+    # NOTE: `render.yaml` itself is always processed regardless of build
+    # filters, so a change to this file does trigger a deploy.
+    #
+    # The `render/deploy` check in .github/workflows/render-deploy-status.yml
+    # mirrors this list to decide whether a push to main should have produced
+    # a deploy. Update both together.
+    buildFilter:
+      paths:
+        - backend/**
     envVars:
       - key: ENVIRONMENT
         value: production
