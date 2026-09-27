@@ -38,7 +38,12 @@ concurrency:
 
 jobs:
   render-deploy:
-    name: Render Deploy (catalyst-api)
+    # Named for what it does. Every Actions job unavoidably creates a check run
+    # in addition to the `render/deploy` commit status this publishes, so the
+    # checks list shows both. Calling this job "Publish render/deploy status"
+    # makes the pair read as one workflow and the status it writes, rather than
+    # as two things that happen to agree.
+    name: Publish render/deploy status
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
