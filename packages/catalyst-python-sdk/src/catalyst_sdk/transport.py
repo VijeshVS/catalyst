@@ -19,7 +19,7 @@ from .snapshot import Snapshot
 
 #: The hosted Catalyst API. The client talks to this out of the box, so a
 #: working setup needs only an SDK key and a project id.
-DEFAULT_HOST = "https://catalyst-api.onrender.com"
+DEFAULT_HOST = "https://catalyst-api-uakz.onrender.com"
 
 #: Environment variable that overrides :data:`DEFAULT_HOST`, for deployments
 #: that run their own instance (staging, a self-hosted API, a port-forward).

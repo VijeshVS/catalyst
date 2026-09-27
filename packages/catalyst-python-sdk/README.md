@@ -72,7 +72,7 @@ parameter, so the SDK cannot infer it from the key.
 
 ```python
 # Staging, a self-hosted instance, or a tunnel to your laptop.
-client = CatalystClient(..., host="https://catalyst-api.onrender.com")
+client = CatalystClient(..., host="https://catalyst-api-uakz.onrender.com")
 ```
 
 ## Freshness
