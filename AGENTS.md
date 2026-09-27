@@ -17,15 +17,13 @@ This workflow is triggered **only when the user asks to push code to GitHub**.
    * `chore(deps): update dependencies`
 5. **Push the new branch** to GitHub.
 6. **Create a Pull Request** from the new branch into `main`. The PR **title** must
-   be `release(backend):`, `release(frontend):` or `release(docs):` followed by a
-   description, and the PR **body** must not be empty. Both are enforced by the
-   `PR Hygiene` workflow — see the CI section. Commits inside the PR follow
-   Conventional Commits as above, with any scope.
+   be `release(<scope>): <description>` followed by a description, and the PR
+   **body** must not be empty. Both are enforced by the `PR Hygiene` workflow —
+   see the CI section. The scope is free-form (`release(backend)`,
+   `release(ci)`, `release(visual)`, …) so any real change has a compliant
+   title. Commits inside the PR follow Conventional Commits as above, with any
+   scope.
 7. **Never push directly to `main`**, even if the user asks to push the code.
-
-Note: the PR title vocabulary has no scope for CI, SDK, or visual work, so a
-change in those areas has no compliant title. That is a gap in the rule, not a
-reason to mislabel a change.
 
 # Catalyst — Codebase Architecture
 
@@ -421,9 +419,10 @@ Automated on pull requests targeting `main` and pushes to `main` via `.github/wo
     * An unrecognised Render status maps to `error`, never `success`, and a missing or rejected `RENDER_API_KEY` fails the run — the check is never allowed to pass while unconfigured.
     * The filter is duplicated in two places on purpose: `render.yaml` for Render, and the `DEPLOY_PATHS` variable in the workflow. They must be changed together, which both files say.
     * Every push shows **two** entries in the checks list, and both are needed. `Publish render/deploy status` is the Actions check run, which is created by the job itself and cannot be suppressed; `render/deploy` is the commit status the job writes. Keeping the Actions check is what makes a failure *visible* — if the workflow dies before posting (missing or rejected `RENDER_API_KEY`, cancelled, timed out) then `render/deploy` is never posted at all, so a commit would show no status rather than a red one. The job is named after the status it writes so the pair does not read as an accident.
-* **`PR Hygiene`**: On `pull_request` (types `opened`, `edited`, `synchronize`, `reopened`) via `.github/workflows/pr-hygiene.yml`. Fails a PR whose title is not `release(backend|frontend|docs): <description>`, whose body is empty or whitespace, or any of whose commits break Conventional Commits. Hand-written rather than a third-party action: it gates every merge and needs no third-party code or token scope. It reads the PR through the API instead of checking out untrusted branch code, so it is safe on forks, and holds only `contents: read` and `pull-requests: read`.
+* **`PR Hygiene`**: On `pull_request` (types `opened`, `edited`, `synchronize`, `reopened`) via `.github/workflows/pr-hygiene.yml`. Fails a PR whose title is not `release(<any scope>): <description>`, whose body is empty or whitespace, or any of whose commits break Conventional Commits. Hand-written rather than a third-party action: it gates every merge and needs no third-party code or token scope. It reads the PR through the API instead of checking out untrusted branch code, so it is safe on forks, and holds only `contents: read` and `pull-requests: read`.
     * PR title and body are attacker-controlled, so they arrive as `env:` vars and are never interpolated into the script body. A crafted title cannot execute anything.
     * Merge commits are skipped, since `git merge` produces a subject nobody controls and failing on it would be a false positive.
     * **A failing check is advisory until it is marked required in branch protection.** Nothing in the repo can make that change.
-    * **The title rule rejects the entire history.** Run against the repo, 0 of 30 existing PRs match, including every `fix(...)` and `feat(...)`. The commit rule is compatible with practice — 39 of the last 40 subjects match, the one failure being `frontend modifications`. The asymmetry is deliberate in the rule as written, so it is worth revisiting: the title vocabulary has no scope for CI, SDK, or visual work, which means a change in those areas has no compliant title.
+    * **The title rule rejects the entire history.** Run against the repo, 0 of 30 existing PRs match, including every `fix(...)` and `feat(...)`. The commit rule is compatible with practice — 39 of the last 40 subjects match, the one failure being `frontend modifications`. The asymmetry is deliberate in the rule as written, so it is worth revisiting.
+    * The scope was originally fixed to `backend|frontend|docs` and had to be widened. That restriction made `release(ci)`, `release(sdk)`, and `release(visual)` invalid, so real work — including the PR that added this check — had no compliant title, and the only way to get a green badge was to mislabel the change. The scope is now free-form, matching the commit rule.
 
