@@ -10,6 +10,12 @@ name: Render Deploy Status
 # Vercel shows a check on every PR because it builds a preview of the branch —
 # Render's equivalent is a service preview, which is a deploy, not a status.
 #
+# Render also has a build filter (`buildFilter.paths: backend/**` in
+# render.yaml), so a push to main that touches no backend file is correctly
+# NOT deployed. This workflow mirrors that filter: when the push is
+# deploy-relevant it waits for the deploy of that exact SHA, and when it is not
+# it reports the state of the deploy production is actually running.
+#
 # Requires one repository secret: RENDER_API_KEY (an account API key, value
 # starts with `rnd_`, from Render dashboard > Account Settings > API Keys).
 # RENDER_SERVICE_ID is an optional override; the service is otherwise found by
@@ -116,14 +122,54 @@ jobs:
 
           # A manual run asks "is the API up right now?", not "did this commit
           # deploy?". Answer from the newest deploy rather than waiting for one.
-          if [ "${IS_DISPATCH}" = "true" ]; then
+          report_current_deploy() {
+            local sha="$1" prefix="$2"
+            local deploys deploy status state short
             deploys=$(api "https://api.render.com/v1/services/${SERVICE_ID}/deploys?limit=1") \
               || fail "Render API /deploys request failed."
             deploy=$(newest_deploy_any_sha "${deploys}")
             [ -n "${deploy}" ] || fail "Render returned no deploys for ${SERVICE_NAME}."
             status=$(jq -r '.status' <<<"${deploy}")
-            post_status "${HEAD_SHA}" "$(state_for "${status}")" "Render: ${status}"
-            [ "$(state_for "${status}")" = success ] || exit 1
+            short=$(jq -r '.commit.id[0:7]' <<<"${deploy}")
+            state=$(state_for "${status}")
+            post_status "${sha}" "${state}" "${prefix} Render: ${status} @ ${short}"
+            [ "${state}" = success ]
+          }
+
+          if [ "${IS_DISPATCH}" = "true" ]; then
+            report_current_deploy "${HEAD_SHA}" "manual check; prod is" || exit 1
+            exit 0
+          fi
+
+          # Render deploys only when a push matches the service's build filter
+          # (`buildFilter.paths` in render.yaml). A docs- or frontend-only push
+          # is correctly NOT deployed, so waiting for a deploy of this SHA would
+          # always time out and turn the badge permanently red. Decide from the
+          # commit's own changed files instead.
+          #
+          # Mirrors render.yaml's buildFilter.paths. Update the two together.
+          DEPLOY_PATHS="backend/"
+
+          push_touches_api() {
+            local files count
+            files=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}" --jq '.files[].filename') \
+              || fail "Could not read the changed files of ${HEAD_SHA} from the GitHub API."
+            count=$(grep -c . <<<"${files}" || true)
+            # GitHub caps a commit's file list at 300 entries. If we are at the
+            # cap the list is truncated, so assume a deploy is expected rather
+            # than risk reporting a false "nothing to deploy".
+            if [ "${count}" -ge 300 ]; then
+              echo "::warning::${HEAD_SHA} reports ${count} files (GitHub caps the list); assuming a deploy is expected."
+              return 0
+            fi
+            grep -E "^(${DEPLOY_PATHS})" <<<"${files}"
+          }
+
+          if ! push_touches_api; then
+            echo "This push changed nothing under ${DEPLOY_PATHS}; Render should skip it."
+            # Report what production is actually running, not a blind success —
+            # otherwise a still-broken deploy would be masked by a docs commit.
+            report_current_deploy "${HEAD_SHA}" "no ${DEPLOY_PATHS} changes; prod is" || exit 1
             exit 0
           fi
 
