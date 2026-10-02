@@ -84,9 +84,9 @@ As a developer, I want orgs with projects and `dev/staging/prod` envs so tenants
 
 ### US-2 — Flag CRUD + Kill Switch
 
-As a release manager, I want to create, toggle, archive `new-checkout` so I can kill bad releases.
+As a release manager, I want to create and toggle `new-checkout` so I can kill bad releases.
 
-- Accept: fields `key ^[a-z0-9-_.]+$, name, description, defaultValue`; toggle per env instant; archived excluded from bootstrap/evaluate; validation error on duplicate key.
+- Accept: fields `key ^[a-z0-9-_.]+$, name, description, defaultValue`; toggle per env instant; validation error on duplicate key. There is no archive concept.
 
 ### US-3 — Percentage Rollout
 

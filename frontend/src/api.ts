@@ -20,6 +20,7 @@ export interface Environment {
   project_id: string;
   name: string;
   version: number;
+  created_at: string;
 }
 
 export interface Project {
@@ -47,6 +48,7 @@ export interface FlagState {
   enabled: boolean;
   percentage: number;
   version: number;
+  updated_at: string;
 }
 
 /**
@@ -80,6 +82,8 @@ export interface TargetingRule {
   priority: number;
   conditions: RuleCondition[];
   serve: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Flag {
@@ -89,8 +93,8 @@ export interface Flag {
   name: string;
   description?: string;
   default_value: boolean;
-  archived: boolean;
   created_at: string;
+  updated_at: string;
   states: FlagState[];
   rules: TargetingRule[];
 }

@@ -134,6 +134,7 @@ class EnvironmentResponse(BaseModel):
     project_id: str
     name: str
     version: int
+    created_at: datetime
 
 
 class ProjectResponse(BaseModel):
@@ -172,6 +173,7 @@ class FlagStateSchema(BaseModel):
     enabled: bool = True
     percentage: int = Field(default=0, ge=0, le=100)
     version: int = 1
+    updated_at: datetime
 
 
 class FlagStateUpdate(BaseModel):
@@ -262,6 +264,8 @@ class TargetingRuleSchema(BaseModel):
         validation_alias=AliasChoices("conditions", "conditions_json"),
     )
     serve: bool = True
+    created_at: datetime
+    updated_at: datetime
 
 
 class TargetingRuleResponse(TargetingRuleSchema):
@@ -279,7 +283,6 @@ class FlagUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     default_value: Optional[bool] = None
-    archived: Optional[bool] = None
 
 
 class FlagResponse(BaseModel):
@@ -291,8 +294,8 @@ class FlagResponse(BaseModel):
     name: str
     description: Optional[str] = None
     default_value: bool
-    archived: bool
     created_at: datetime
+    updated_at: datetime
     states: List[FlagStateSchema] = Field(default_factory=list)
     rules: List[TargetingRuleSchema] = Field(default_factory=list)
 

@@ -104,6 +104,14 @@ Models: `User`, `Organization`, `Project`, `Environment`, `Flag`, `FlagEnvState`
 - Creating a flag seeds a state row for every environment of its project.
 - Strict project scoping: every flag/evaluate/bootstrap/audit endpoint requires `project_id` (`422` missing, `404` unknown), and queries filter by `Flag.project_id` / `AuditLog.project_id`.
 - Environments must belong to the project (`404` otherwise), so identical flag keys can coexist in different projects without leaking state, results, snapshots, or audit entries.
+- There is no archive concept. `Flag.archived` and its `archived` list filter are gone; a retired flag is one with the kill switch on or the rollout at 0.
+
+## Timestamps
+
+- `FlagEnvState.updated_at` is bumped on every state mutation, kill switch and rollout percentage alike. It is the column that answers "when did this rollout last move".
+- `Flag.updated_at` is bumped on create and on any later edit; `TargetingRule` carries `created_at`/`updated_at`; `Environment.created_at` records provisioning.
+- `ProjectResponse.updated_at` is the newest of a project's `Flag.updated_at` and every `FlagEnvState.updated_at`, so moving a slider moves the project tile. It was previously `max(flag.created_at)`, which never moved.
+- These columns came from `backend/migrations/002_updated_at.sql`. Startup `create_all()` cannot add a column to an existing table, so a live database needs that script before this code ships.
 
 ## Evaluation and Targeting
 
@@ -220,13 +228,13 @@ Backend (`cd backend && uv run pytest`):
 
 - Self-contained: `tests/conftest.py` points the app at a temporary SQLite database (`aiosqlite`) before any app module is imported, so no PostgreSQL/Redis is needed and the dev database is untouched.
 - The default API fixture registers an authenticated account; `anon_client` covers auth and protection tests.
-- Coverage: health/root, sticky rollout hashing, kill switch, rule evaluation, rule CRUD with condition validation and dense re-ordering, cross-user/project/environment isolation, rule precedence and environment-scoped cache invalidation, organization and project CRUD, custom environment management, project scoping, bootstrap ETag scoping (304 → 200 on mutation), Redis snapshot caching including degradation when Redis is absent/broken/undecodable, registration/login/refresh/me, password validation and hashing, auth rate limiting, cross-user authorization and audit attribution, API key management, `X-SDK-Key` auth and project-scoped SDK access, and server/SDK parity fuzzing.
-- **77 tests passing.**
+- Coverage: health/root, sticky rollout hashing, kill switch, rule evaluation, rule CRUD with condition validation and dense re-ordering, cross-user/project/environment isolation, rule precedence and environment-scoped cache invalidation, organization and project CRUD, custom environment management, project scoping, bootstrap ETag scoping (304 → 200 on mutation), Redis snapshot caching including degradation when Redis is absent/broken/undecodable, registration/login/refresh/me, password validation and hashing, auth rate limiting, cross-user authorization and audit attribution, API key management, `X-SDK-Key` auth and project-scoped SDK access, mutation timestamps and the absence of `archived`, and server/SDK parity fuzzing.
+- **94 tests passing.**
 
 SDK (`cd packages/catalyst-python-sdk && uv run --with pytest --with mmh3 pytest`):
 
 - Self-contained, no network or running services.
-- **87 tests passing.**
+- **88 tests passing.**
 
 Frontend (`cd frontend`):
 

@@ -14,7 +14,7 @@ has to be right before anything is built on top of it.
 | Phase | What it is | Status |
 |---|---|---|
 | [0](#phase-0--api-key-security-fix) | API key security fix | **Done** |
-| [1](#phase-1--updated_at-timestamps) | `updated_at` timestamps | **Active** |
+| [1](#phase-1--updated_at-timestamps) | `updated_at` timestamps | **Done** |
 | [2](#phase-2--rework-how-flags-are-evaluated) | Rework evaluation | **Active** |
 
 ---
@@ -118,7 +118,7 @@ environment isolation.
 
 # Phase 1 — `updated_at` timestamps
 
-**Status: Active.** Small, but needed for the canary later.
+**Status: Done.**
 
 ## The problem, in plain words
 
@@ -136,26 +136,29 @@ The visible symptom: every project tile shows a "last updated" time, but it is
 `FlagEnvState` holds the kill switch and rollout percentage per flag per
 environment. It has **no timestamps at all**.
 
-- [ ] Add an `updated_at` column, defaulting to now.
-- [ ] Set it on **every** state mutation — kill switch and rollout percentage
+- [x] Add an `updated_at` column, defaulting to now.
+- [x] Set it on **every** state mutation — kill switch and rollout percentage
       alike, so moving the slider is recorded.
-- [ ] Write `backend/migrations/002_updated_at.sql` and apply it to Neon by hand.
-      **Startup `create_all()` only creates missing tables — it never adds a column
-      to an existing one**, so the model change alone does nothing to a live
-      database. See `backend/migrations/README.md`.
+- [x] Write `backend/migrations/002_updated_at.sql`. Applying it to Neon is still
+      outstanding. **Startup `create_all()` only creates missing tables — it never
+      adds a column to an existing one**, so the model change alone does nothing
+      to a live database. See `backend/migrations/README.md`.
 
 ### 1-B · Add timestamps to the other mutable tables 🗄️
 
-- [ ] `Flag.updated_at` — bumped on create and on any later edit.
-- [ ] `TargetingRule.created_at` and `.updated_at`.
-- [ ] `Environment.created_at`.
-- [ ] Can follow 1-A; 1-A is the one that matters.
+- [x] `Flag.updated_at` — bumped on create and on any later edit.
+- [x] `TargetingRule.created_at` and `.updated_at`.
+- [x] `Environment.created_at`.
+- [x] Can follow 1-A; 1-A is the one that matters.
 
 ### 1-C · Make the project "last updated" honest
 
-- [ ] Once 1-B lands, change `ProjectResponse.updated_at` (`schemas.py:150`) to
+- [x] Once 1-B lands, change `ProjectResponse.updated_at` (`schemas.py:150`) to
       use the real newest `Flag.updated_at` instead of `max(flag.created_at)`.
-- [ ] Test: change a rollout, confirm the project's `updated_at` moved.
+      Implemented as the newest of every `Flag.updated_at` *and* every
+      `FlagEnvState.updated_at` in the project, so the rollout test in the next
+      item holds: a state change is what a user actually does.
+- [x] Test: change a rollout, confirm the project's `updated_at` moved.
 
 ### 1-D · Remove the `archived` column 🗄️
 
@@ -165,36 +168,42 @@ in the product, no plan for one, and no button anywhere in the UI. Keeping the
 column would ship a half-feature that reads like working functionality and
 cannot be reached.
 
-`Flag.archived` is a write-never field. `FlagUpdate` (`schemas.py:282`) is the
-only schema that accepts it, it is used by no endpoint, and `FlagCreate` has no
+`Flag.archived` is a write-never field: nothing in the UI sets it. `FlagUpdate`
+(`schemas.py:282`) is the only schema that accepts it, and `FlagCreate` has no
 such field. Two read paths filter on it anyway:
 
-- [ ] Drop `Flag.archived` (`models.py:148`) and the `ix_flag_project_archived`
+**Correction (implemented):** this section originally said `FlagUpdate` "is used
+by no endpoint" and instructed deleting it outright. That is wrong —
+`PATCH /api/v1/flags/{flag_key}` uses it, and the dashboard calls it to toggle
+a flag's default value. Deleting the schema would have deleted a live endpoint
+a phase before Phase 2-C removes `default_value`. Only the `archived` field is
+removed; `FlagUpdate` and the endpoint stay.
+
+- [x] Drop `Flag.archived` (`models.py:148`) and the `ix_flag_project_archived`
       index that pairs it with `project_id` (`models.py:165`).
-- [ ] Drop the `archived` query parameter and the `Flag.archived == archived`
+- [x] Drop the `archived` query parameter and the `Flag.archived == archived`
       filter from `list_flags` (`api/v1/flags.py:84`, `:91`). The endpoint
       already behaves as if nothing is ever archived, so the list keeps
       returning everything it returns today.
-- [ ] Remove `archived` from `FlagResponse` (`schemas.py:294`). Delete
-      `FlagUpdate` (`schemas.py:282`) and its export in
-      `backend/app/schemas/__init__.py` outright rather than stripping one field
-      out of a schema nothing references.
-- [ ] `services/snapshots.py:122` loses its `Flag.archived == False` clause.
-- [ ] `api/v1/organizations.py:46` — `flag_count` becomes a plain count, with
+- [x] Remove `archived` from `FlagResponse` (`schemas.py:294`) and from
+      `FlagUpdate`. `FlagUpdate` itself and its export stay: the
+      `PATCH /flags/{flag_key}` endpoint it serves is live.
+- [x] `services/snapshots.py:122` loses its `Flag.archived == False` clause.
+- [x] `api/v1/organizations.py:46` — `flag_count` becomes a plain count, with
       no `if not flag.archived` test.
-- [ ] `frontend/src/api.ts:92` — remove `archived` from the `Flag` type.
-- [ ] Migration `004_drop_flag_archived.sql` (numbered after Phase 2's
+- [x] `frontend/src/api.ts:92` — remove `archived` from the `Flag` type.
+- [x] Migration `004_drop_flag_archived.sql` (numbered after Phase 2's
       `003_enable_all.sql`; the two are independent, so it can run first if the
       numbering matters). Startup `create_all()` only ever
-      creates missing tables, so it will not drop the column from Neon; apply
-      the migration by hand, same as 1-A.
-- [ ] Code changes and the migration ship in **one** deploy window. A deploy
+      creates missing tables, so it will not drop the column from Neon; applying
+      it to Neon is still outstanding, same as 1-A.
+- [x] Code changes and the migration ship in **one** deploy window. A deploy
       that drops the column while a query still filters on it (or the reverse)
       breaks the flag list and the bootstrap snapshot in between.
-- [ ] Fix the three docs that promise archiving, since they describe behaviour
+- [x] Fix the three docs that promise archiving, since they describe behaviour
       that will not exist: `docs/PRD.md:89`, `docs/TECH_SPEC.md:103`, `:153`,
       `:185`, `:270`, and `docs/USE_CASES.md:165`.
-- [ ] `frontend/src/test/ruleBuilder.test.tsx:30` sets `archived: false` on its
+- [x] `frontend/src/test/ruleBuilder.test.tsx:30` sets `archived: false` on its
       fixture flag; drop the field.
 
 ---

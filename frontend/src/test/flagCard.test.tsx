@@ -20,9 +20,9 @@ const flag: Flag = {
   name: 'AI Assistant',
   description: 'Controls the AI assistant widget',
   default_value: false,
-  archived: false,
   created_at: '2026-01-01T00:00:00Z',
-  states: [{ env: 'dev', enabled: true, percentage: 0, version: 1 }],
+  updated_at: '2026-01-02T00:00:00Z',
+  states: [{ env: 'dev', enabled: true, percentage: 0, version: 1, updated_at: '2026-01-02T00:00:00Z' }],
   rules: [],
 };
 

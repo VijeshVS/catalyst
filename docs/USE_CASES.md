@@ -162,7 +162,7 @@ Parity gate: both SDKs pass shared `eval.vectors.json` (same murmur seed 0, same
 1. create rules → set priority order
 2. playground matrix → confirm `rule:#0` matches
 3. rollout `10%` → monitor → `50%` → `100%`
-4. archive the old flag when done (archived flags are excluded from bootstrap/evaluate)
+4. leave the old flag at `percentage=0` when done, or turn on its kill switch to take it off for everyone
 
 ## Troubleshooting
 

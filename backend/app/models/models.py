@@ -124,6 +124,7 @@ class Environment(Base):
     )
     name: Mapped[str] = mapped_column(String(64), nullable=False)  # dev, staging, prod
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     project: Mapped["Project"] = relationship("Project", back_populates="environments")
 
@@ -145,8 +146,12 @@ class Flag(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     default_value: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
     project: Mapped["Project"] = relationship("Project", back_populates="flags")
     states: Mapped[List["FlagEnvState"]] = relationship(
@@ -162,7 +167,6 @@ class Flag(Base):
 
     __table_args__ = (
         UniqueConstraint("project_id", "key", name="uq_project_flag_key"),
-        Index("ix_flag_project_archived", "project_id", "archived"),
     )
 
 
@@ -188,6 +192,13 @@ class FlagEnvState(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     percentage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # Bumped on every state mutation, kill switch and rollout alike, so
+    # "when did this rollout last move" is answerable.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
     flag: Mapped["Flag"] = relationship("Flag", back_populates="states")
 
@@ -212,6 +223,12 @@ class TargetingRule(Base):
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     conditions_json: Mapped[Any] = mapped_column(JSON, default=list, nullable=False)
     serve: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
     flag: Mapped["Flag"] = relationship("Flag", back_populates="rules")
 
