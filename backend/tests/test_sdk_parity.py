@@ -130,14 +130,14 @@ def test_flag_evaluation_matches_the_server_across_fuzzed_inputs():
         rules = _random_rules()
         attributes = _random_attributes()
         user_id = random.choice(["user_1", "u42", "alice@acme.com", ""])
-        default_value = random.choice([True, False])
         enabled = random.choice([True, False])
+        enable_all = random.choice([True, False])
         percentage = random.choice([0, 1, 25, 50, 99, 100])
 
         expected_value, expected_reason, expected_rule = server.evaluate_flag(
             flag_key="ai-assistant",
-            default_value=default_value,
             enabled=enabled,
+            enable_all=enable_all,
             percentage=percentage,
             rules=rules,
             user_id=user_id,
@@ -146,8 +146,8 @@ def test_flag_evaluation_matches_the_server_across_fuzzed_inputs():
 
         actual = sdk.evaluate_flag(
             flag_key="ai-assistant",
-            default_value=default_value,
             enabled=enabled,
+            enable_all=enable_all,
             percentage=percentage,
             rules=[sdk.Rule.from_dict(rule) for rule in rules],
             user_id=user_id,
@@ -162,7 +162,7 @@ def test_flag_evaluation_matches_the_server_across_fuzzed_inputs():
 def test_sdk_reads_the_bootstrap_payload_shape():
     """
     Guards the wire contract: the SDK must parse the exact ``/bootstrap`` body
-    the server emits, including camelCase ``defaultValue`` and rule conditions.
+    the server emits, including camelCase ``enableAll`` and rule conditions.
     """
     payload = {
         "env": "prod",
@@ -170,8 +170,8 @@ def test_sdk_reads_the_bootstrap_payload_shape():
         "flags": {
             "ai-assistant": {
                 "key": "ai-assistant",
-                "defaultValue": True,
                 "enabled": True,
+                "enableAll": False,
                 "percentage": 25,
                 "rules": [
                     {
@@ -187,8 +187,8 @@ def test_sdk_reads_the_bootstrap_payload_shape():
     snapshot = Snapshot.from_payload(payload, etag='W/"p:prod:3"')
     flag = snapshot.get("ai-assistant")
     assert flag is not None
-    assert flag.default_value is True
     assert flag.enabled is True
+    assert flag.enable_all is False
     assert flag.percentage == 25
     assert flag.version == 3
     assert [rule.id for rule in flag.rules] == ["r1"]
@@ -198,12 +198,68 @@ def test_sdk_reads_the_bootstrap_payload_shape():
     # A matching context is served True by the kill switch being off.
     result = sdk.evaluate_flag(
         flag_key="ai-assistant",
-        default_value=flag.default_value,
         enabled=flag.enabled,
+        enable_all=flag.enable_all,
         percentage=flag.percentage,
         rules=flag.rules,
         user_id="user_1",
         attributes={"email": "dev@acme.com"},
     )
-    assert result.value is True
     assert result.rule_id == "r1"
+    # 25% of the matched group, so this user is inside or the opposite value.
+    assert result.value == (result.reason == sdk.REASON_RULE_AND_ROLLOUT)
+
+
+def test_parity_covers_both_switches_and_rules_on_one_flag():
+    """
+    The differential fuzz above draws both switches and the rules
+    independently, so on any given flag they usually collide in a way that
+    short-circuits. This walks the decision table explicitly instead, which is
+    where the two implementations would drift if they ever did.
+    """
+    rule_true = {
+        "id": "r-true",
+        "priority": 0,
+        "conditions": [{"attr": "plan", "op": "equals", "value": "pro"}],
+        "serve": True,
+    }
+    rule_false = {
+        "id": "r-false",
+        "priority": 1,
+        "conditions": [{"attr": "plan", "op": "equals", "value": "free"}],
+        "serve": False,
+    }
+
+    for enabled in (False, True):
+        for enable_all in (False, True):
+            for percentage in (0, 1, 40, 50, 100):
+                for rules in ([], [rule_true], [rule_false], [rule_true, rule_false]):
+                    for attributes in ({}, {"plan": "pro"}, {"plan": "free"}):
+                        for user_id in ("u1", "u42", "alice@acme.com"):
+                            expected = server.evaluate_flag(
+                                flag_key="both-switches",
+                                enabled=enabled,
+                                enable_all=enable_all,
+                                percentage=percentage,
+                                rules=rules,
+                                user_id=user_id,
+                                attributes=attributes,
+                            )
+                            actual = sdk.evaluate_flag(
+                                flag_key="both-switches",
+                                enabled=enabled,
+                                enable_all=enable_all,
+                                percentage=percentage,
+                                rules=[sdk.Rule.from_dict(r) for r in rules],
+                                user_id=user_id,
+                                attributes=attributes,
+                            )
+                            assert actual.value == expected[0], (
+                                enabled, enable_all, percentage, rules, attributes, user_id
+                            )
+                            assert actual.reason == expected[1], (
+                                enabled, enable_all, percentage, rules, attributes, user_id
+                            )
+                            assert actual.rule_id == expected[2], (
+                                enabled, enable_all, percentage, rules, attributes, user_id
+                            )

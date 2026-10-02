@@ -14,7 +14,6 @@ export function FlagCreatePanel({ open, onClose, projectData }: FlagCreatePanelP
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [defaultValue, setDefaultValue] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,7 +21,6 @@ export function FlagCreatePanel({ open, onClose, projectData }: FlagCreatePanelP
     setKey('');
     setName('');
     setDescription('');
-    setDefaultValue(false);
     setError(null);
   };
 
@@ -42,7 +40,6 @@ export function FlagCreatePanel({ open, onClose, projectData }: FlagCreatePanelP
         key: key.trim(),
         name: name.trim(),
         description: description.trim() || undefined,
-        default_value: defaultValue,
       });
       resetForm();
       onClose();
@@ -111,17 +108,10 @@ export function FlagCreatePanel({ open, onClose, projectData }: FlagCreatePanelP
               onChange={(event) => setDescription(event.target.value)}
             />
           </div>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={defaultValue}
-              onChange={(event) => setDefaultValue(event.target.checked)}
-            />
-            <span>
-              <strong>Use true as the safe default</strong>
-              <small>Served when the rollout is 0% or the kill switch is active.</small>
-            </span>
-          </label>
+          <p className="form-hint">
+            A new flag is created off in every environment: 0% rollout, kill switch off. Turn it on
+            here or in the flag card below.
+          </p>
           {error && <div className="form-error">{error}</div>}
           <div className="form-actions">
             <button type="button" className="btn-secondary" onClick={close}>Cancel</button>

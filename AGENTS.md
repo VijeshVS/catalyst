@@ -105,6 +105,7 @@ Models: `User`, `Organization`, `Project`, `Environment`, `Flag`, `FlagEnvState`
 - Strict project scoping: every flag/evaluate/bootstrap/audit endpoint requires `project_id` (`422` missing, `404` unknown), and queries filter by `Flag.project_id` / `AuditLog.project_id`.
 - Environments must belong to the project (`404` otherwise), so identical flag keys can coexist in different projects without leaking state, results, snapshots, or audit entries.
 - There is no archive concept. `Flag.archived` and its `archived` list filter are gone; a retired flag is one with the kill switch on or the rollout at 0.
+- There is no `Flag.default_value` either. `PATCH /flags/{key}` edits `name` and `description` only; both switches and the percentage live on `FlagEnvState`.
 
 ## Timestamps
 
@@ -115,12 +116,17 @@ Models: `User`, `Organization`, `Project`, `Environment`, `Flag`, `FlagEnvState`
 
 ## Evaluation and Targeting
 
-Evaluation order: kill switch → rules by ascending priority → percentage rollout → default value.
+Evaluation order: kill switch → enable-to-all → rules by ascending priority → percentage rollout.
 
-- Kill switch immediately returns the configured default value.
-- Percentage rollout is deterministic Murmur3 hashing of `flag_key:user_id`; sticky for the same flag and user.
+- Kill switch returns `false` to everyone. `enable_all` returns `true` to everyone with no targeting. Neither serves a "default value"; there is no third source of truth.
+- Rules filter: the first match by ascending priority puts the user in the population, and no match means `false` (`DEFAULT_VALUE`) whatever the percentage is.
+- The percentage splits whoever survived the rules. A matched user outside the bucket gets the **opposite** of the rule's value, so rules and percentage partition the matched group exactly.
+- `FlagEnvState.percentage` is a real share: `0` serves nobody, `100` serves everybody. Its column default is `100`, but a newly seeded flag is pinned to `0` so nothing goes live on creation.
+- Percentage rollout is deterministic Murmur3 hashing of `flag_key:user_id`; sticky for the same flag and user. The bucket is a fixed number per user, so **raising a percentage only ever adds users, never removes one**.
 - `evaluate_flag()` sorts rules itself rather than trusting the caller's order.
+- Reason codes: `KILL_SWITCH_ACTIVE`, `ENABLE_ALL_USERS`, `RULE_AND_ROLLOUT`, `RULE_OUTSIDE_ROLLOUT`, `PERCENTAGE_ROLLOUT`, `PERCENTAGE_OUTSIDE_ROLLOUT`, `DEFAULT_VALUE` (rules filtered the user out), `FLAG_NOT_FOUND`. There is no `RULE_MATCH` any more.
 - `TargetingRule` is environment-scoped (`flag_id` + `env`), ordered by `priority` where `0` is highest, kept dense (`0..n-1`) on create-append, reorder, and delete.
+- `TargetingRule.name` is an optional operator label; the UI falls back to "Rule #3" when it is empty.
 - Conditions are `{"attr", "op", "value"}`, ANDed within a rule. A rule needs 1–25 conditions; an empty list is rejected.
 - Operators: `equals`, `not_equals`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `greater_than`, `greater_than_or_equal`, `less_than`, `less_than_or_equal`, `exists`, `not_exists`.
 - Aliases `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `notExists` are accepted and normalized on write.
@@ -201,14 +207,15 @@ Design system (Retro Black & Gold):
 
 - Distribution `sdk-catalyst`, import name `catalyst_sdk` (the `catalyst-sdk` PyPI name is taken by an unrelated project). Hatchling build, ships `py.typed`, `license = "MIT"` with a bundled `LICENSE`, only runtime dependency `httpx`.
 - `hashing.py` vendors MurmurHash3 x86_32 so bucketing needs no native extension; verified against `mmh3` and the server's `get_user_bucket()`.
-- `evaluator.py` mirrors `app/services/evaluator.py`: kill switch → rules by ascending priority → percentage rollout → default, with operator aliases normalized.
+- `evaluator.py` mirrors `app/services/evaluator.py`: kill switch → enable-all → rules by ascending priority → percentage rollout, with operator aliases normalized.
 - `client.py` reads as it evaluates: construction does no I/O, and every check makes a conditional request before deciding locally, so a dashboard toggle shows on the next check. Snapshot swaps are a single attribute assignment, so readers see a consistent view.
 - Reads are conditional (`If-None-Match`), so an unchanged environment costs a `304` with no body. `test_evaluation_is_sub_millisecond` asserts decision cost with `refresh_on_evaluate=False`.
 - `host` defaults to `transport.DEFAULT_HOST`, overridable per client with `host=` or per process with `CATALYST_HOST`; the argument wins. An explicitly empty `host` raises `ConfigurationError`.
-- A `_read_lock` collapses concurrent checks into one request (single-flight). A failed read sets a `failure_backoff` window (default 5s), so an unreachable API costs one timeout per window. A first read that fails falls back to the disk cache before `default_value`.
+- A `_read_lock` collapses concurrent checks into one request (single-flight). A failed read sets a `failure_backoff` window (default 5s), so an unreachable API costs one timeout per window.
+- **Fails closed.** A read that fails serves `false`; there is no disk cache, no `cache_path`, and no `CATALYST_CACHE_DIR`. A `304` is a successful read and keeps serving. `_read_failed` is the flag that stops the in-memory snapshot being served, and `stats()["read_failed"]` exposes it.
 - `refresh_on_evaluate=False` gives in-memory-only evaluation; `start_auto_refresh(interval, on_error)` is then how to stay current. `offline=True` implies it.
 - An explicit `refresh()` raises `AuthorizationError` because a rejected key will not fix itself; the implicit read inside `evaluate()`/`is_enabled()` absorbs it so a flag check inside someone else's request is not a 500. `raise_on_error=True` propagates reads too.
-- The last good snapshot is persisted under `~/.cache/catalyst` (`CATALYST_CACHE_DIR` overrides) with an atomic write-then-rename. `cache_path=False` disables it.
+- There is no constructor `default_value` and no per-call override; both went with `Flag.default_value`.
 - `backend/tests/test_sdk_parity.py` is a differential suite: it fuzzes both evaluators with identical inputs and requires identical values, reasons, and rule ids. Any change to evaluation semantics should keep it green.
 - Release: bump `pyproject.toml` version and merge. `.github/workflows/publish-sdk.yml` re-runs the SDK and parity suites and publishes to PyPI when the version is new, using Trusted Publishing (OIDC) so no token is stored in the repo.
 
@@ -228,20 +235,20 @@ Backend (`cd backend && uv run pytest`):
 
 - Self-contained: `tests/conftest.py` points the app at a temporary SQLite database (`aiosqlite`) before any app module is imported, so no PostgreSQL/Redis is needed and the dev database is untouched.
 - The default API fixture registers an authenticated account; `anon_client` covers auth and protection tests.
-- Coverage: health/root, sticky rollout hashing, kill switch, rule evaluation, rule CRUD with condition validation and dense re-ordering, cross-user/project/environment isolation, rule precedence and environment-scoped cache invalidation, organization and project CRUD, custom environment management, project scoping, bootstrap ETag scoping (304 → 200 on mutation), Redis snapshot caching including degradation when Redis is absent/broken/undecodable, registration/login/refresh/me, password validation and hashing, auth rate limiting, cross-user authorization and audit attribution, API key management, `X-SDK-Key` auth and project-scoped SDK access, mutation timestamps and the absence of `archived`, and server/SDK parity fuzzing.
-- **94 tests passing.**
+- Coverage: health/root, sticky rollout hashing, kill switch, rule evaluation, rule CRUD with condition validation and dense re-ordering, cross-user/project/environment isolation, rule precedence and environment-scoped cache invalidation, organization and project CRUD, custom environment management, project scoping, bootstrap ETag scoping (304 → 200 on mutation), Redis snapshot caching including degradation when Redis is absent/broken/undecodable, registration/login/refresh/me, password validation and hashing, auth rate limiting, cross-user authorization and audit attribution, API key management, `X-SDK-Key` auth and project-scoped SDK access, mutation timestamps and the absence of `archived`, both switches at once, the 0% and 100% rollout endpoints, rollout monotonicity, the rules-filtered-out case, and server/SDK parity fuzzing over both switches plus rules and a percentage.
+- **113 tests passing.**
 
 SDK (`cd packages/catalyst-python-sdk && uv run --with pytest --with mmh3 pytest`):
 
 - Self-contained, no network or running services.
-- **88 tests passing.**
+- **89 tests passing.**
 
 Frontend (`cd frontend`):
 
 - `npm run test` — routing, auth-aware API client, targeting helpers, rule builder, rollout slider, docs search
 - `npm run lint`
 - `npm run build`
-- **82 tests passing** across 8 files.
+- **87 tests passing** across 8 files.
 
 ## Deployment
 

@@ -79,8 +79,8 @@ def _evaluate_entry(entry: Dict, user_id: str, attributes: Dict) -> EvaluateResp
     """Runs the shared evaluator over one resolved snapshot flag entry."""
     value, reason, rule_id = evaluate_flag(
         flag_key=entry["key"],
-        default_value=entry["defaultValue"],
         enabled=entry["enabled"],
+        enable_all=entry["enableAll"],
         percentage=entry["percentage"],
         rules=entry["rules"],
         user_id=user_id,

@@ -6,9 +6,12 @@ import pytest
 
 from catalyst_sdk.evaluator import (
     REASON_DEFAULT,
+    REASON_ENABLE_ALL,
     REASON_KILL_SWITCH,
     REASON_ROLLOUT,
-    REASON_RULE_MATCH,
+    REASON_ROLLOUT_OUTSIDE,
+    REASON_RULE_AND_ROLLOUT,
+    REASON_RULE_OUTSIDE_ROLLOUT,
     Condition,
     Rule,
     evaluate_flag,
@@ -109,18 +112,43 @@ def _rule(rule_id: str, priority: int, serve: bool, conditions: list) -> Rule:
     )
 
 
+def _evaluate(**overrides):
+    params = {
+        "flag_key": "f",
+        "enabled": True,
+        "enable_all": False,
+        "percentage": 100,
+        "rules": [],
+        "user_id": "u1",
+        "attributes": {},
+    }
+    params.update(overrides)
+    return evaluate_flag(**params)
+
+
 def test_kill_switch_short_circuits_everything():
-    result = evaluate_flag(
-        flag_key="f",
-        default_value=True,
+    """Highest priority: the kill switch means false, full stop."""
+    result = _evaluate(
         enabled=False,
+        enable_all=True,
         percentage=100,
+        rules=[_rule("r1", 0, True, [{"attr": "email", "op": "exists"}])],
+        attributes={"email": "a@b.com"},
+    )
+    assert result.value is False
+    assert result.reason == REASON_KILL_SWITCH
+    assert result.rule_id is None
+
+
+def test_enable_all_serves_true_to_everyone():
+    result = _evaluate(
+        enable_all=True,
+        percentage=0,
         rules=[_rule("r1", 0, False, [{"attr": "email", "op": "exists"}])],
-        user_id="u1",
         attributes={"email": "a@b.com"},
     )
     assert result.value is True
-    assert result.reason == REASON_KILL_SWITCH
+    assert result.reason == REASON_ENABLE_ALL
     assert result.rule_id is None
 
 
@@ -129,43 +157,76 @@ def test_first_matching_rule_by_priority_wins():
         _rule("low", 5, False, [{"attr": "plan", "op": "equals", "value": "pro"}]),
         _rule("high", 0, True, [{"attr": "plan", "op": "equals", "value": "pro"}]),
     ]
-    result = evaluate_flag("f", False, True, 0, rules, "u1", {"plan": "pro"})
+    result = _evaluate(rules=rules, attributes={"plan": "pro"})
     assert result.rule_id == "high"
     assert result.value is True
-    assert result.reason == REASON_RULE_MATCH
+    assert result.reason == REASON_RULE_AND_ROLLOUT
 
 
-def test_rules_beat_the_percentage_rollout():
+def test_a_rule_and_a_percentage_combine_rather_than_override():
+    """The old test asserted the short-circuit; the rules now split the group."""
     rules = [_rule("optout", 0, False, [{"attr": "plan", "op": "equals", "value": "free"}])]
-    result = evaluate_flag("f", False, True, 100, rules, "u1", {"plan": "free"})
-    assert result.reason == REASON_RULE_MATCH
+    inside = _evaluate(rules=rules, percentage=100, attributes={"plan": "free"})
+    assert inside.value is False
+    assert inside.reason == REASON_RULE_AND_ROLLOUT
+
+    outside = _evaluate(rules=rules, percentage=0, attributes={"plan": "free"})
+    assert outside.value is True, "a matched user outside the rollout gets the opposite value"
+    assert outside.reason == REASON_RULE_OUTSIDE_ROLLOUT
+
+
+def test_the_percentage_splits_the_matched_group():
+    rules = [_rule("beta", 0, True, [{"attr": "plan", "op": "equals", "value": "pro"}])]
+    values = [
+        _evaluate(rules=rules, percentage=40, user_id=f"user_{i}", attributes={"plan": "pro"}).value
+        for i in range(400)
+    ]
+    assert set(values) == {True, False}, "the matched group is split, not wiped"
+    assert 120 <= sum(values) <= 200
+
+
+def test_rules_filter_out_a_user_who_matches_none():
+    rules = [_rule("beta", 0, True, [{"attr": "plan", "op": "equals", "value": "pro"}])]
+    result = _evaluate(rules=rules, percentage=100, attributes={"plan": "free"})
     assert result.value is False
+    assert result.reason == REASON_DEFAULT
 
 
 def test_rollout_is_sticky_across_calls():
     """Same flag and user must always resolve the same way."""
-    first = evaluate_flag("f", False, True, 100, [], "user_123", {})
-    second = evaluate_flag("f", False, True, 100, [], "user_123", {})
-    assert first.value == second.value is True
+    first = _evaluate(user_id="user_123")
+    second = _evaluate(user_id="user_123")
+    assert first.value is second.value is True
     assert first.reason == REASON_ROLLOUT
     assert second.reason == REASON_ROLLOUT
 
 
 def test_rollout_outcome_depends_on_the_user_bucket():
     """At 50% a given user is deterministically in or out, never random."""
-    outcomes = {
-        evaluate_flag("f", False, True, 50, [], f"user_{i}", {}).value for i in range(400)
-    }
+    outcomes = {_evaluate(percentage=50, user_id=f"user_{i}").value for i in range(400)}
     assert outcomes == {True, False}, "a 50% rollout should split the population"
 
 
+def test_raising_the_percentage_never_removes_a_user():
+    """The bucket is a fixed number per user, so a rollout only ever grows."""
+    users = [f"user_{i}" for i in range(300)]
+    served: set[str] = set()
+    for percentage in range(0, 101, 10):
+        now = {u for u in users if _evaluate(percentage=percentage, user_id=u).value}
+        assert served <= now, f"raising the rollout to {percentage}% stopped serving a user"
+        served = now
+
+
 def test_zero_and_hundred_percent_edges():
-    assert evaluate_flag("f", True, True, 0, [], "u1", {}).reason == REASON_DEFAULT
-    assert evaluate_flag("f", False, True, 100, [], "u1", {}).value is True
+    """0% and 100% are opposites, which they used not be."""
+    assert _evaluate(percentage=0).value is False
+    assert _evaluate(percentage=0).reason == REASON_ROLLOUT_OUTSIDE
+    assert _evaluate(percentage=100).value is True
+    assert _evaluate(percentage=100).reason == REASON_ROLLOUT
 
 
 def test_empty_rule_conditions_match_unconditionally():
     """Defensive: the API rejects these on write, but old snapshots may hold one."""
-    result = evaluate_flag("f", False, True, 0, [_rule("catchall", 0, True, [])], "u1", {})
+    result = _evaluate(rules=[_rule("catchall", 0, True, [])])
     assert result.rule_id == "catchall"
     assert result.value is True

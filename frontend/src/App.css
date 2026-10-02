@@ -450,15 +450,18 @@ textarea.form-input { resize: vertical; line-height: 1.6; }
 .flag-title-area { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .flag-name { margin: 0; color: var(--text-primary); font: 700 18px var(--font-display); }
 .flag-key-badge { padding: 3px 8px; border: 1px solid var(--border-color); border-radius: 4px; color: var(--gold-primary); background: var(--gold-faint); font-size: 10px; }
-.default-value-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--border-color); border-radius: 5px; background: transparent; color: var(--text-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .4px; cursor: pointer; transition: color .18s, border-color .18s; }
-.default-value-toggle:hover { border-color: var(--gold-primary); color: var(--gold-primary); }
-.default-value-toggle.on { border-color: var(--gold-primary); color: var(--gold-primary); }
 .default-value-icon { font-size: 10px; }
 .flag-desc { margin: 8px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
 .kill-switch-btn { display: inline-flex; align-items: center; gap: 7px; min-height: 35px; padding: 7px 11px; border: 1px solid; border-radius: 7px; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .kill-switch-btn.active { border-color: rgba(39,174,96,.35); color: var(--success); background: var(--success-faint); box-shadow: 0 2px 11px var(--success-glow); }
 .kill-switch-btn.killed { border-color: rgba(231,76,60,.5); color: var(--danger-bright); background: var(--danger-faint); box-shadow: 0 0 17px var(--danger-glow); animation: killed-glow 2s ease-in-out infinite; }
 .kill-switch-btn:disabled { opacity: .5; cursor: not-allowed; }
+.flag-switches { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.enable-all-btn { display: inline-flex; align-items: center; gap: 7px; min-height: 35px; padding: 7px 11px; border: 1px solid var(--border-color); border-radius: 7px; background: transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; cursor: pointer; transition: color .18s, border-color .18s, background .18s; }
+.enable-all-btn:hover { border-color: var(--gold-primary); color: var(--gold-primary); }
+.enable-all-btn.on { border-color: var(--gold-primary); color: var(--gold-primary); background: var(--gold-faint); }
+.flag-precedence { margin: -6px 0 14px; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
+.rollout-hint { margin-top: 9px; color: var(--amber-accent); font-size: 9px; text-transform: uppercase; letter-spacing: .4px; }
 .kill-switch-icon { font-size: 13px; }
 @keyframes killed-glow { 0%,100% { box-shadow: 0 0 12px var(--danger-glow); } 50% { box-shadow: 0 0 23px rgba(231,76,60,.6); } }
 .rollout-box { padding: 15px 17px; border: 1px solid var(--border-color); border-radius: 9px; background: rgba(0,0,0,.28); }
@@ -593,9 +596,6 @@ textarea.form-input { resize: vertical; line-height: 1.6; }
 .slide-over-intro { margin: 21px 0 25px; color: var(--text-secondary); font-size: 11px; line-height: 1.7; }
 .stacked-form { display: flex; flex-direction: column; }
 .stacked-form textarea.form-input { min-height: 95px; }
-.checkbox-field { display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 20px; color: var(--text-secondary); font-size: 11px; cursor: pointer; }
-.checkbox-field input { margin-top: 2px; accent-color: var(--gold-primary); }
-.checkbox-field strong, .checkbox-field small { display: block; } .checkbox-field strong { color: var(--text-primary); font-size: 11px; } .checkbox-field small { margin-top: 4px; color: var(--text-muted); font-size: 9px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; padding-top: 19px; border-top: 1px solid var(--border-color); }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slide-in { from { transform: translateX(25px); opacity: .5; } to { transform: translateX(0); opacity: 1; } }

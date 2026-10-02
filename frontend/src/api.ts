@@ -45,7 +45,11 @@ export interface Organization {
 export interface FlagState {
   id?: string;
   env: string;
+  /** Emergency kill switch. Off means nobody gets the feature. */
   enabled: boolean;
+  /** Enable to all users. On means everybody does, with no targeting. */
+  enable_all: boolean;
+  /** Share of eligible users served. 0 serves nobody, 100 serves everybody. */
   percentage: number;
   version: number;
   updated_at: string;
@@ -79,6 +83,8 @@ export interface RuleCondition {
 export interface TargetingRule {
   id: string;
   env: string;
+  /** Operator-facing label. Empty means the UI falls back to "Rule #3". */
+  name: string;
   priority: number;
   conditions: RuleCondition[];
   serve: boolean;
@@ -92,7 +98,6 @@ export interface Flag {
   key: string;
   name: string;
   description?: string;
-  default_value: boolean;
   created_at: string;
   updated_at: string;
   states: FlagState[];
@@ -107,11 +112,26 @@ export interface HealthStatus {
   version: string;
 }
 
+/**
+ * Reason codes on `EvaluateResult.reason`. An operator debugging a rollout has
+ * to be able to tell "your rule did not match" (DEFAULT_VALUE) from "your rule
+ * matched and you fell outside the percentage" (RULE_OUTSIDE_ROLLOUT).
+ */
+export type EvaluateReason =
+  | 'KILL_SWITCH_ACTIVE'
+  | 'ENABLE_ALL_USERS'
+  | 'RULE_AND_ROLLOUT'
+  | 'RULE_OUTSIDE_ROLLOUT'
+  | 'PERCENTAGE_ROLLOUT'
+  | 'PERCENTAGE_OUTSIDE_ROLLOUT'
+  | 'DEFAULT_VALUE'
+  | 'FLAG_NOT_FOUND';
+
 export interface EvaluateResult {
   flag_key: string;
   value: boolean;
-  reason: string;
-  rule_id?: string;
+  reason: EvaluateReason;
+  rule_id?: string | null;
 }
 
 export interface AuditLog {
@@ -436,7 +456,6 @@ export async function createFlag(
     key: string;
     name: string;
     description?: string;
-    default_value: boolean;
   },
 ): Promise<Flag> {
   return jsonRequest<Flag>(
@@ -453,7 +472,7 @@ export async function updateFlagEnvState(
   projectId: string,
   flagKey: string,
   env: string,
-  data: { enabled?: boolean; percentage?: number },
+  data: { enabled?: boolean; enable_all?: boolean; percentage?: number },
 ): Promise<FlagState> {
   return jsonRequest<FlagState>(
     `${API_BASE}/flags/${encodeURIComponent(flagKey)}/environments/${encodeURIComponent(env)}?project_id=${encodeURIComponent(projectId)}`,
@@ -468,7 +487,7 @@ export async function updateFlagEnvState(
 export async function updateFlag(
   projectId: string,
   flagKey: string,
-  data: { default_value?: boolean },
+  data: { name?: string; description?: string },
 ): Promise<Flag> {
   return jsonRequest<Flag>(
     `${API_BASE}/flags/${encodeURIComponent(flagKey)}?project_id=${encodeURIComponent(projectId)}`,
@@ -503,7 +522,7 @@ export async function createFlagRule(
   projectId: string,
   flagKey: string,
   env: string,
-  data: { conditions: RuleCondition[]; serve: boolean; priority?: number },
+  data: { name?: string; conditions: RuleCondition[]; serve: boolean; priority?: number },
 ): Promise<TargetingRule> {
   return jsonRequest<TargetingRule>(rulesUrl(projectId, flagKey, env), {
     method: 'POST',
@@ -517,7 +536,7 @@ export async function updateFlagRule(
   flagKey: string,
   env: string,
   ruleId: string,
-  data: { conditions?: RuleCondition[]; serve?: boolean; priority?: number },
+  data: { name?: string; conditions?: RuleCondition[]; serve?: boolean; priority?: number },
 ): Promise<TargetingRule> {
   return jsonRequest<TargetingRule>(
     `${rulesPath(flagKey, env)}/${encodeURIComponent(ruleId)}?project_id=${encodeURIComponent(projectId)}`,

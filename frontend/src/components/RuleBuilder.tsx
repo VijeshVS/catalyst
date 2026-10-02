@@ -15,6 +15,7 @@ import {
   previewRuleMatch,
 } from '../lib/attributeCatalog';
 import {
+  MAX_RULE_CONDITIONS,
   RULE_OPERATORS,
   draftFromRule,
   emptyCondition,
@@ -364,12 +365,19 @@ function MatchPreview({
   const hasContext = Object.keys(context).length > 0;
   const saved = rules.map((rule, index) => ({
     id: rule.id,
-    label: `Rule #${index + 1}`,
+    label: rule.name || `Rule #${index + 1}`,
     serve: rule.serve,
     conditions: rule.conditions,
   }));
   const pending = draft
-    ? [{ id: '__draft__' as const, label: 'New rule', serve: draft.serve, conditions: toRuleConditions(draft) }]
+    ? [
+        {
+          id: '__draft__' as const,
+          label: draft.name.trim() || 'New rule',
+          serve: draft.serve,
+          conditions: toRuleConditions(draft),
+        },
+      ]
     : [];
   const all = [...saved, ...pending];
   const winner = hasContext ? all.find((entry) => previewRuleMatch(entry.conditions, context)) : undefined;
@@ -385,7 +393,9 @@ function MatchPreview({
           Add attributes in the playground below to see which rule wins for a real user.
         </p>
       ) : all.length === 0 ? (
-        <p className="rule-preview-hint">No rules yet — everyone falls through to the rollout.</p>
+        <p className="rule-preview-hint">
+          No rules yet, so nobody is filtered out and the rollout decides on its own.
+        </p>
       ) : (
         <>
           <ol className="rule-preview-list">
@@ -414,8 +424,10 @@ function MatchPreview({
           </ol>
           <p className="rule-preview-result">
             {winner
-              ? `First match wins: ${winner.label} serves ${winner.serve ? 'true' : 'false'}.`
-              : 'Nothing matches, so the percentage rollout and then the flag default decide.'}
+              ? `${winner.label} matched, so this user is in the audience. Inside the rollout it serves ${
+                  winner.serve ? 'true' : 'false'
+                }; outside it, the opposite.`
+              : 'No rule matches, so this user is filtered out of the audience and gets false whatever the rollout is.'}
           </p>
         </>
       )}
@@ -493,6 +505,20 @@ function RuleEditor({
         </div>
       </div>
 
+      <div className="form-group">
+        <label className="form-label" htmlFor={`${idPrefix}-name`}>Rule label</label>
+        <input
+          id={`${idPrefix}-name`}
+          className="form-input"
+          type="text"
+          maxLength={128}
+          value={draft.name}
+          onChange={(event) => onChange({ ...draft, name: event.target.value })}
+          placeholder="e.g. Internal beta"
+        />
+        <p className="form-hint">Optional. Used to tell this rule apart from the others.</p>
+      </div>
+
       <p className="rule-logic-note">
         Every condition must match (AND) for this rule to apply. Conditions are checked in order
         against the attributes you set in the playground.
@@ -514,7 +540,17 @@ function RuleEditor({
       </div>
 
       <div className="rule-card-footer">
-        <button type="button" className="text-button" onClick={onAddCondition}>
+        <button
+          type="button"
+          className="text-button"
+          onClick={onAddCondition}
+          disabled={draft.conditions.length >= MAX_RULE_CONDITIONS}
+          title={
+            draft.conditions.length >= MAX_RULE_CONDITIONS
+              ? `A rule can hold at most ${MAX_RULE_CONDITIONS} conditions`
+              : undefined
+          }
+        >
           <span aria-hidden="true">+</span> Add condition
         </button>
         <div className="rule-card-actions">
@@ -565,6 +601,7 @@ export function RuleBuilder({ flag, projectData }: RuleBuilderProps) {
     setError(null);
     try {
       await projectData.updateRule(flag, rule, {
+        name: draft.name.trim(),
         conditions: toRuleConditions(draft),
         serve: draft.serve,
       });
@@ -587,6 +624,7 @@ export function RuleBuilder({ flag, projectData }: RuleBuilderProps) {
     setError(null);
     try {
       await projectData.createRule(flag, {
+        name: newDraft.name.trim(),
         conditions: toRuleConditions(newDraft),
         serve: newDraft.serve,
       });
@@ -640,8 +678,9 @@ export function RuleBuilder({ flag, projectData }: RuleBuilderProps) {
       {open && (
         <div className="rule-builder-body">
           <p className="rule-builder-intro">
-            Rules are checked in priority order before the percentage rollout. The first rule
-            whose conditions all match decides the served value.
+            Rules are checked in priority order and the first rule whose conditions all match
+            puts the user in the audience. If rules exist and none matched, the user is filtered
+            out and gets <code>false</code>. The rollout then splits whoever is left.
           </p>
 
           <MatchPreview
@@ -656,8 +695,8 @@ export function RuleBuilder({ flag, projectData }: RuleBuilderProps) {
           {rules.length === 0 && !newDraft && (
             <div className="rule-empty-state">
               <p>
-                No targeting rules in <strong>{projectData.activeEnv}</strong>. Everyone falls
-                through to the rollout, then to the flag default.
+                No targeting rules in <strong>{projectData.activeEnv}</strong>, so nobody is
+                filtered out and the rollout alone decides who gets the feature.
               </p>
             </div>
           )}
@@ -703,7 +742,7 @@ export function RuleBuilder({ flag, projectData }: RuleBuilderProps) {
               <div key={rule.id} className="rule-card">
                 <div className="rule-card-header">
                   <h4 className="rule-card-title">
-                    <span className="rule-priority">Rule #{index + 1}</span>
+                    <span className="rule-priority">{rule.name || `Rule #${index + 1}`}</span>
                     <span className={`rule-serve-badge ${serveClass(rule.serve)}`}>
                       serve {rule.serve ? 'true' : 'false'}
                     </span>

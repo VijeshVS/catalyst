@@ -219,14 +219,14 @@ async def test_flag_project_isolation(client):
     res = await client.post(
         f"{API}/flags",
         params={"project_id": project_a["id"]},
-        json={"key": "shared-key", "name": "Alpha Flag", "default_value": False},
+        json={"key": "shared-key", "name": "Alpha Flag"},
     )
     assert res.status_code == 201, res.text
     flag_a = res.json()
     res = await client.post(
         f"{API}/flags",
         params={"project_id": project_b["id"]},
-        json={"key": "shared-key", "name": "Beta Flag", "default_value": True},
+        json={"key": "shared-key", "name": "Beta Flag"},
     )
     assert res.status_code == 201, res.text
     flag_b = res.json()
@@ -249,11 +249,12 @@ async def test_flag_project_isolation(client):
     res = await client.get(f"{API}/flags", params={"project_id": project_b["id"]})
     assert [f["id"] for f in res.json()] == [flag_b["id"]]
 
-    # Detail fetch is scoped: project B does not see project A's flag definition
+    # Detail fetch is scoped: project B sees its own definition, not project A's
     res = await client.get(
         f"{API}/flags/shared-key", params={"project_id": project_b["id"]}
     )
-    assert res.json()["default_value"] is True
+    assert res.json()["id"] == flag_b["id"]
+    assert res.json()["name"] == "Beta Flag"
 
     # Kill switch in project A must not leak into project B
     res = await client.patch(
@@ -269,11 +270,13 @@ async def test_flag_project_isolation(client):
     )
     assert res.json() == {"flag_key": "shared-key", "value": False, "reason": "KILL_SWITCH_ACTIVE", "rule_id": None}
 
+    # Project B's flag was not killed, so it decides on its own percentage.
+    # Both answer false, but for different reasons -- which is the isolation.
     res = await client.post(
         f"{API}/evaluate", params={"project_id": project_b["id"]}, json=eval_body
     )
-    assert res.json()["value"] is True
-    assert res.json()["reason"] == "DEFAULT_VALUE"
+    assert res.json()["value"] is False
+    assert res.json()["reason"] == "PERCENTAGE_OUTSIDE_ROLLOUT"
 
     # Audit log is scoped per project
     res = await client.get(f"{API}/audit", params={"project_id": project_a["id"]})

@@ -3,11 +3,14 @@ Local flag evaluation, byte-for-byte equivalent to the Catalyst server.
 
 Precedence, matching ``app/services/evaluator.py`` on the backend:
 
-1. Emergency kill switch -> serve the flag default
-2. Targeting rules in ascending ``priority`` -> first rule whose conditions all
-   match serves its value
-3. Percentage rollout -> deterministic sticky bucket
-4. Flag default
+1. Emergency kill switch -> serve ``False`` to everyone, nothing else is looked at
+2. "Enable to all users" -> serve ``True`` to everyone, no targeting at all
+3. Targeting rules in ascending ``priority`` -> the first rule whose conditions
+   all match puts the user in the population. If rules exist and none matched,
+   the user is filtered out and served ``False``.
+4. Percentage rollout -> a deterministic sticky bucket splits the eligible
+   population. A matched user outside the bucket gets the *opposite* of the
+   rule's value, so the two partition the matched group exactly.
 
 A missing context attribute makes a condition false so the rule safely skips.
 Nothing here performs I/O, which is what keeps evaluation sub-millisecond.
@@ -68,9 +71,15 @@ def normalize_operator(op: Optional[str]) -> str:
 # ---------------------------------------------------------------------------
 # Reasons (kept identical to the server's EvaluateResponse.reason values)
 # ---------------------------------------------------------------------------
+#: An operator debugging a rollout has to be able to tell "your rule did not
+#: match" (DEFAULT_VALUE) from "your rule matched and you fell outside the
+#: percentage" (RULE_OUTSIDE_ROLLOUT) -- two very different problems.
 REASON_KILL_SWITCH = "KILL_SWITCH_ACTIVE"
-REASON_RULE_MATCH = "RULE_MATCH"
+REASON_ENABLE_ALL = "ENABLE_ALL_USERS"
+REASON_RULE_AND_ROLLOUT = "RULE_AND_ROLLOUT"
+REASON_RULE_OUTSIDE_ROLLOUT = "RULE_OUTSIDE_ROLLOUT"
 REASON_ROLLOUT = "PERCENTAGE_ROLLOUT"
+REASON_ROLLOUT_OUTSIDE = "PERCENTAGE_OUTSIDE_ROLLOUT"
 REASON_DEFAULT = "DEFAULT_VALUE"
 REASON_FLAG_NOT_FOUND = "FLAG_NOT_FOUND"
 REASON_NO_SNAPSHOT = "NO_SNAPSHOT"
@@ -205,8 +214,8 @@ def match_rule(conditions: Sequence[Condition], attributes: Mapping[str, Any]) -
 # ---------------------------------------------------------------------------
 def evaluate_flag(
     flag_key: str,
-    default_value: bool,
     enabled: bool,
+    enable_all: bool,
     percentage: int,
     rules: Iterable[Rule],
     user_id: str,
@@ -214,42 +223,48 @@ def evaluate_flag(
     flag_version: Optional[int] = None,
 ) -> EvaluationResult:
     """
-    Evaluates a flag from snapshot state. Pure and allocation-light, so the hot
-    path stays comfortably under a millisecond.
+    Evaluates a flag from its two switches, its rules, and its percentage.
+
+    Pure and allocation-light, so the hot path stays comfortably under a
+    millisecond.
     """
-    # 1. Emergency kill switch
-    if not enabled:
+
+    def result(value: bool, reason: str, rule_id: Optional[str] = None) -> EvaluationResult:
         return EvaluationResult(
-            value=bool(default_value),
-            reason=REASON_KILL_SWITCH,
+            value=value,
+            reason=reason,
+            rule_id=rule_id,
             flag_key=flag_key,
             flag_version=flag_version,
         )
 
-    # 2. Targeting rules, lowest priority number first
+    # 1. Emergency Kill Switch: highest priority, no exceptions.
+    if not enabled:
+        return result(False, REASON_KILL_SWITCH)
+
+    # 2. Enable to all users: everybody, no targeting.
+    if enable_all:
+        return result(True, REASON_ENABLE_ALL)
+
+    # 3. Targeting rules, lowest priority number first, decide who is in.
+    matched: Optional[Rule] = None
     for rule in sorted(rules, key=lambda item: item.priority):
         if match_rule(rule.conditions, attributes):
-            return EvaluationResult(
-                value=bool(rule.serve),
-                reason=REASON_RULE_MATCH,
-                rule_id=rule.id,
-                flag_key=flag_key,
-                flag_version=flag_version,
-            )
+            matched = rule
+            break
 
-    # 3. Deterministic percentage rollout
-    if percentage > 0 and get_user_bucket(flag_key, user_id) < percentage:
-        return EvaluationResult(
-            value=True,
-            reason=REASON_ROLLOUT,
-            flag_key=flag_key,
-            flag_version=flag_version,
-        )
+    if matched is None and rules:
+        # Rules exist and filtered this user out, so they are not in the
+        # population and the percentage is irrelevant to them.
+        return result(False, REASON_DEFAULT)
 
-    # 4. Flag default
-    return EvaluationResult(
-        value=bool(default_value),
-        reason=REASON_DEFAULT,
-        flag_key=flag_key,
-        flag_version=flag_version,
-    )
+    # 4. The percentage splits the eligible population. The same bucket is used
+    # for every percentage value, so raising it can only ever add users.
+    serve = True if matched is None else matched.serve
+    rule_id = matched.id if matched is not None else None
+    if get_user_bucket(flag_key, user_id) < percentage:
+        reason = REASON_RULE_AND_ROLLOUT if matched else REASON_ROLLOUT
+        return result(serve, reason, rule_id)
+
+    reason = REASON_RULE_OUTSIDE_ROLLOUT if matched else REASON_ROLLOUT_OUTSIDE
+    return result(not serve, reason, rule_id)

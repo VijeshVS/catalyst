@@ -1,16 +1,16 @@
 """
 Tests for updating an existing flag's definition via
-``PATCH /api/v1/flags/{key}`` — primarily the safe default value.
+``PATCH /api/v1/flags/{key}``.
 
-Covers both directions of the toggle, strict project scoping, unknown-flag
-handling, environment version (ETag) invalidation, and the guarantee that
-rollout / kill-switch behavior is untouched by a default-value change.
+Covers both editable fields, strict project scoping, unknown-flag handling,
+environment version (ETag) invalidation, and the guarantee that rollout and
+kill-switch behaviour are untouched by a name or description change.
 """
 
 from __future__ import annotations
 
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import AsyncClient
 
 from app.core import cache as cache_module
 from app.services.snapshots import SOURCE_POSTGRES
@@ -19,9 +19,7 @@ from test_snapshot_cache import fake_redis  # noqa: F401  (shared fixture)
 API = "/api/v1"
 
 
-async def create_org_project_flag(
-    client: AsyncClient, name: str, default_value: bool = False
-) -> tuple[str, str]:
+async def create_flag(client: AsyncClient, name: str) -> tuple[str, str, str]:
     org = await client.post(f"{API}/organizations", json={"name": f"{name} Org"})
     assert org.status_code == 201, org.text
     project = await client.post(
@@ -30,83 +28,116 @@ async def create_org_project_flag(
     assert project.status_code == 201, project.text
     flag = await client.post(
         f"{API}/flags?project_id={project.json()['id']}",
-        json={"key": "ai-assistant", "name": "AI Assistant", "default_value": default_value},
+        json={"key": "ai-assistant", "name": "AI Assistant"},
     )
     assert flag.status_code == 201, flag.text
-    return project.json()["id"], flag.json()["key"]
+    return org.json()["id"], project.json()["id"], flag.json()["key"]
 
 
-async def patch_default(client: AsyncClient, project_id: str, flag_key: str, value: bool):
+async def patch(client: AsyncClient, project_id: str, flag_key: str, **fields):
     return await client.patch(
         f"{API}/flags/{flag_key}",
         params={"project_id": project_id},
-        json={"default_value": value},
+        json=fields,
     )
 
 
 # ---------------------------------------------------------------------------
-# Default value updates
+# Definition updates
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_default_value_can_be_changed_from_false_to_true(client):
-    project_id, flag_key = await create_org_project_flag(client, "Default False To True")
+async def test_name_can_be_changed(client):
+    _org_id, project_id, flag_key = await create_flag(client, "Rename")
 
-    res = await patch_default(client, project_id, flag_key, True)
+    res = await patch(client, project_id, flag_key, name="Renamed Assistant")
     assert res.status_code == 200, res.text
-    assert res.json()["default_value"] is True
+    assert res.json()["name"] == "Renamed Assistant"
 
     fetched = await client.get(f"{API}/flags/{flag_key}", params={"project_id": project_id})
-    assert fetched.status_code == 200, fetched.text
-    assert fetched.json()["default_value"] is True
+    assert fetched.json()["name"] == "Renamed Assistant"
 
 
 @pytest.mark.asyncio
-async def test_default_value_can_be_changed_from_true_to_false(client):
-    project_id, flag_key = await create_org_project_flag(client, "Default True To False", True)
+async def test_description_can_be_changed(client):
+    _org_id, project_id, flag_key = await create_flag(client, "Describe")
 
-    res = await patch_default(client, project_id, flag_key, False)
+    res = await patch(client, project_id, flag_key, description="Controls the widget")
     assert res.status_code == 200, res.text
-    assert res.json()["default_value"] is False
-
-    fetched = await client.get(f"{API}/flags/{flag_key}", params={"project_id": project_id})
-    assert fetched.status_code == 200, fetched.text
-    assert fetched.json()["default_value"] is False
+    assert res.json()["description"] == "Controls the widget"
 
 
 @pytest.mark.asyncio
-async def test_default_value_update_is_scoped_to_the_project(client):
-    project_a, flag_a = await create_org_project_flag(client, "Scope A")
-    project_b, flag_b = await create_org_project_flag(client, "Scope B", True)
+async def test_flag_has_no_default_value_field(client):
+    """2-C removed it: a vestigial third source of truth is how the confusion started."""
+    _org_id, project_id, flag_key = await create_flag(client, "No Default")
 
-    # The same key exists in both projects with different defaults.
-    assert flag_a == "ai-assistant" and flag_b == "ai-assistant"
+    fetched = await client.get(f"{API}/flags/{flag_key}", params={"project_id": project_id})
+    assert "default_value" not in fetched.json()
 
-    # Updating via project B's scope must not touch project A's flag.
-    res = await patch_default(client, project_b, flag_b, False)
+
+@pytest.mark.asyncio
+async def test_a_flag_starts_off_and_inactive(client):
+    """A new flag serves nobody until someone turns it on."""
+    _org_id, project_id, flag_key = await create_flag(client, "Fresh Off")
+
+    res = await client.post(
+        f"{API}/evaluate",
+        params={"project_id": project_id},
+        json={"flag_key": flag_key, "env": "dev", "context": {"user_id": "u1"}},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["value"] is False
+    assert res.json()["reason"] == "PERCENTAGE_OUTSIDE_ROLLOUT"
+
+    fetched = await client.get(f"{API}/flags/{flag_key}", params={"project_id": project_id})
+    dev_state = next(s for s in fetched.json()["states"] if s["env"] == "dev")
+    assert dev_state["percentage"] == 0
+    assert dev_state["enable_all"] is False
+
+
+@pytest.mark.asyncio
+async def test_definition_update_is_scoped_to_the_project(client):
+    org_a = await client.post(f"{API}/organizations", json={"name": "Scope A"})
+    project_a = await client.post(
+        f"{API}/organizations/{org_a.json()['id']}/projects", json={"name": "Project A"}
+    )
+    org_b = await client.post(f"{API}/organizations", json={"name": "Scope B"})
+    project_b = await client.post(
+        f"{API}/organizations/{org_b.json()['id']}/projects", json={"name": "Project B"}
+    )
+    for project in (project_a, project_b):
+        assert (
+            await client.post(
+                f"{API}/flags?project_id={project.json()['id']}",
+                json={"key": "ai-assistant", "name": "AI Assistant"},
+            )
+        ).status_code == 201
+
+    # The same key exists in both projects.
+    res = await patch(client, project_b.json()["id"], "ai-assistant", name="Only B")
     assert res.status_code == 200, res.text
 
-    fetched_a = await client.get(f"{API}/flags/ai-assistant", params={"project_id": project_a})
-    assert fetched_a.status_code == 200, fetched_a.text
-    assert fetched_a.json()["default_value"] is False, "project A's flag was modified through project B"
-
-    fetched_b = await client.get(f"{API}/flags/ai-assistant", params={"project_id": project_b})
-    assert fetched_b.json()["default_value"] is True or fetched_b.json()["default_value"] is False
-    assert fetched_b.json()["default_value"] is False
+    fetched_a = await client.get(
+        f"{API}/flags/ai-assistant", params={"project_id": project_a.json()["id"]}
+    )
+    assert fetched_a.json()["name"] == "AI Assistant", "project A's flag was modified through B"
 
     # A flag that does not exist in the caller's project is a 404, not a leak.
-    res = await patch_default(client, project_a, "ghost-flag", True)
-    assert res.status_code == 404
+    assert (await patch(client, project_a.json()["id"], "ghost-flag", name="x")).status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_default_value_update_rejects_unknown_project(client):
-    res = await patch_default(client, "nonexistent-project", "ai-assistant", True)
+async def test_definition_update_rejects_unknown_project(client):
+    res = await patch(client, "nonexistent-project", "ai-assistant", name="x")
     assert res.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# Cache invalidation
+# ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_default_value_change_invalidates_environment_snapshots(client, fake_redis):
-    project_id, flag_key = await create_org_project_flag(client, "Default Invalidate")
+async def test_definition_change_invalidates_environment_snapshots(client, fake_redis):
+    _org_id, project_id, flag_key = await create_flag(client, "Definition Invalidate")
 
     first = await client.get(f"{API}/bootstrap?project_id={project_id}&env=prod")
     assert first.status_code == 200, first.text
@@ -114,23 +145,22 @@ async def test_default_value_change_invalidates_environment_snapshots(client, fa
     etag_before = first.headers["ETag"]
     assert cache_module.snapshot_key(project_id, "prod") in fake_redis.store
 
-    res = await patch_default(client, project_id, flag_key, True)
+    res = await patch(client, project_id, flag_key, name="Renamed")
     assert res.status_code == 200, res.text
 
-    # The cached snapshot is evicted and the ETag changes with the version.
     assert cache_module.snapshot_key(project_id, "prod") not in fake_redis.store
 
     second = await client.get(f"{API}/bootstrap?project_id={project_id}&env=prod")
     assert second.status_code == 200, second.text
     assert second.headers["ETag"] != etag_before
-    assert second.json()["flags"][flag_key]["defaultValue"] is True
+    assert "defaultValue" not in second.json()["flags"][flag_key]
+    assert second.json()["flags"][flag_key]["enableAll"] is False
 
 
 @pytest.mark.asyncio
-async def test_default_value_change_does_not_disturb_rollout_or_kill_switch(client):
-    project_id, flag_key = await create_org_project_flag(client, "Default No Disturb")
+async def test_definition_change_does_not_disturb_rollout_or_kill_switch(client):
+    _org_id, project_id, flag_key = await create_flag(client, "Definition No Disturb")
 
-    # Give the flag a non-default rollout and kill it in prod.
     state = await client.patch(
         f"{API}/flags/{flag_key}/environments/prod",
         params={"project_id": project_id},
@@ -147,25 +177,26 @@ async def test_default_value_change_does_not_disturb_rollout_or_kill_switch(clie
     assert killed.json()["value"] is False
     assert killed.json()["reason"] == "KILL_SWITCH_ACTIVE"
 
-    # Change the default: the killed flag now serves the new default...
-    res = await patch_default(client, project_id, flag_key, True)
+    res = await patch(client, project_id, flag_key, name="Renamed")
     assert res.status_code == 200, res.text
 
+    # The kill switch now means false, full stop: there is no default to fall
+    # back to any more.
     killed_after = await client.post(
         f"{API}/evaluate",
         params={"project_id": project_id},
         json={"flag_key": flag_key, "env": "prod", "context": {"user_id": "u1"}},
     )
-    assert killed_after.json()["value"] is True
+    assert killed_after.json()["value"] is False
     assert killed_after.json()["reason"] == "KILL_SWITCH_ACTIVE"
 
-    # ...while the rollout percentage and kill-switch state are untouched.
+    # The rollout percentage and kill-switch state are untouched.
     fetched = await client.get(f"{API}/flags/{flag_key}", params={"project_id": project_id})
     prod_state = next(s for s in fetched.json()["states"] if s["env"] == "prod")
     assert prod_state["enabled"] is False
     assert prod_state["percentage"] == 40
 
-    # Re-enable: the rollout still decides, independent of the default.
+    # Re-enable: the rollout still decides.
     await client.patch(
         f"{API}/flags/{flag_key}/environments/prod",
         params={"project_id": project_id},

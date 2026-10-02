@@ -118,7 +118,6 @@ async def create_flag(
         key=data.key,
         name=data.name,
         description=data.description,
-        default_value=data.default_value,
     )
     db.add(flag)
     await db.flush()
@@ -137,7 +136,7 @@ async def create_flag(
             user_id=current_user.id,
             user_email=current_user.email,
             action="flag.created",
-            after={"key": flag.key, "name": flag.name, "default_value": flag.default_value},
+            after={"key": flag.key, "name": flag.name},
         )
     )
     await db.commit()
@@ -169,31 +168,21 @@ async def update_flag(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Update a flag's definition, including its safe default value."""
+    """Update a flag's name and description."""
     project = await get_project_or_404(db, project_id, current_user.id)
     flag = await _get_flag_in_project(db, project.id, flag_key)
 
-    before = {
-        "name": flag.name,
-        "description": flag.description,
-        "default_value": flag.default_value,
-    }
+    before = {"name": flag.name, "description": flag.description}
     if data.name is not None:
         flag.name = data.name
     if data.description is not None:
         flag.description = data.description
-    if data.default_value is not None:
-        flag.default_value = data.default_value
 
-    after = {
-        "name": flag.name,
-        "description": flag.description,
-        "default_value": flag.default_value,
-    }
+    after = {"name": flag.name, "description": flag.description}
     if after == before:
         return await _get_flag_in_project(db, project.id, flag_key)
 
-    # The default value is part of every environment's snapshot -> bust all ETags.
+    # The definition is part of every environment's snapshot -> bust all ETags.
     await bump_environment_versions(db, project.id)
 
     db.add(
@@ -242,13 +231,21 @@ async def update_flag_env_state(
     )
     state = result.scalar_one_or_none()
     if not state:
-        state = FlagEnvState(flag_id=flag.id, env=env, enabled=True, percentage=0, version=1)
+        state = FlagEnvState(
+            flag_id=flag.id, env=env, enabled=True, enable_all=False, percentage=0, version=1
+        )
         db.add(state)
 
-    before_state = {"enabled": state.enabled, "percentage": state.percentage}
+    before_state = {
+        "enabled": state.enabled,
+        "enable_all": state.enable_all,
+        "percentage": state.percentage,
+    }
 
     if data.enabled is not None:
         state.enabled = data.enabled
+    if data.enable_all is not None:
+        state.enable_all = data.enable_all
     if data.percentage is not None:
         state.percentage = data.percentage
 
@@ -259,6 +256,8 @@ async def update_flag_env_state(
     action_name = "flag.updated"
     if data.enabled is not None and data.enabled != before_state["enabled"]:
         action_name = "kill_switch.activated" if not data.enabled else "kill_switch.deactivated"
+    elif data.enable_all is not None and data.enable_all != before_state["enable_all"]:
+        action_name = "enable_all.activated" if data.enable_all else "enable_all.deactivated"
     elif data.percentage is not None and data.percentage != before_state["percentage"]:
         action_name = "rollout.percentage_updated"
 
@@ -273,7 +272,11 @@ async def update_flag_env_state(
             user_email=current_user.email,
             action=action_name,
             before=before_state,
-            after={"enabled": state.enabled, "percentage": state.percentage},
+            after={
+                "enabled": state.enabled,
+                "enable_all": state.enable_all,
+                "percentage": state.percentage,
+            },
         )
     )
 
@@ -328,6 +331,7 @@ async def create_flag_rule(
     rule = TargetingRule(
         flag_id=flag.id,
         env=env,
+        name=data.name or "",
         priority=priority,
         conditions_json=[condition.model_dump() for condition in data.conditions],
         serve=data.serve,
@@ -423,6 +427,8 @@ async def update_flag_rule(
         )
 
     before = serialize_rule(rule)
+    if data.name is not None:
+        rule.name = data.name
     if data.conditions is not None:
         rule.conditions_json = [condition.model_dump() for condition in data.conditions]
     if data.serve is not None:

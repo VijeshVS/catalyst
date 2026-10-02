@@ -11,9 +11,8 @@ import {
   fetchProjectEnvironments,
   getErrorMessage,
   reorderFlagRules as reorderFlagRulesRequest,
-  updateFlagEnvState,
+  updateFlagEnvState as updateFlagEnvStateRequest,
   updateFlagRule as updateFlagRuleRequest,
-  updateFlag as updateFlagRequest,
 } from '../api';
 import type {
   Environment,
@@ -41,23 +40,22 @@ export interface ProjectData {
   setActiveEnv: (environment: string) => void;
   refresh: () => Promise<void>;
   toggleKillSwitch: (flag: Flag) => Promise<void>;
+  toggleEnableAll: (flag: Flag) => Promise<void>;
   updateRollout: (flag: Flag, percentage: number) => Promise<void>;
-  updateDefaultValue: (flag: Flag, defaultValue: boolean) => Promise<void>;
   createFlag: (data: {
     key: string;
     name: string;
     description?: string;
-    default_value: boolean;
   }) => Promise<Flag>;
   createEnvironment: (name: string) => Promise<Environment>;
   createRule: (
     flag: Flag,
-    data: { conditions: RuleCondition[]; serve: boolean },
+    data: { name?: string; conditions: RuleCondition[]; serve: boolean; priority?: number },
   ) => Promise<TargetingRule>;
   updateRule: (
     flag: Flag,
     rule: TargetingRule,
-    data: { conditions?: RuleCondition[]; serve?: boolean },
+    data: { name?: string; conditions?: RuleCondition[]; serve?: boolean; priority?: number },
   ) => Promise<TargetingRule>;
   deleteRule: (flag: Flag, rule: TargetingRule) => Promise<void>;
   moveRule: (flag: Flag, rule: TargetingRule, direction: -1 | 1) => Promise<void>;
@@ -74,6 +72,7 @@ export interface ProjectData {
 const FALLBACK_STATE: FlagState = {
   env: 'dev',
   enabled: true,
+  enable_all: false,
   percentage: 0,
   version: 1,
   updated_at: '',
@@ -146,7 +145,7 @@ export function useProject(projectId: string | undefined): ProjectData {
       if (!projectId) return;
       const current = flag.states.find((state) => state.env === activeEnv) ?? FALLBACK_STATE;
       try {
-        await updateFlagEnvState(projectId, flag.key, activeEnv, { enabled: !current.enabled });
+        await updateFlagEnvStateRequest(projectId, flag.key, activeEnv, { enabled: !current.enabled });
         await load();
       } catch (requestError) {
         setError(getErrorMessage(requestError, 'Error updating kill switch'));
@@ -185,7 +184,7 @@ export function useProject(projectId: string | undefined): ProjectData {
       applyPercentage(percentage);
 
       try {
-        await updateFlagEnvState(projectId, flag.key, activeEnv, { percentage });
+        await updateFlagEnvStateRequest(projectId, flag.key, activeEnv, { percentage });
         if ((rolloutSequences.current.get(key) ?? 0) !== sequence) return;
       } catch (requestError) {
         if ((rolloutSequences.current.get(key) ?? 0) !== sequence) return;
@@ -198,17 +197,20 @@ export function useProject(projectId: string | undefined): ProjectData {
     [activeEnv, load, projectId],
   );
 
-  const updateDefaultValue = useCallback(
-    async (flag: Flag, defaultValue: boolean) => {
+  const toggleEnableAll = useCallback(
+    async (flag: Flag) => {
       if (!projectId) return;
+      const current = flag.states.find((state) => state.env === activeEnv) ?? FALLBACK_STATE;
       try {
-        await updateFlagRequest(projectId, flag.key, { default_value: defaultValue });
+        await updateFlagEnvStateRequest(projectId, flag.key, activeEnv, {
+          enable_all: !current.enable_all,
+        });
         await load();
       } catch (requestError) {
-        setError(getErrorMessage(requestError, 'Error updating default value'));
+        setError(getErrorMessage(requestError, 'Error updating the enable-all switch'));
       }
     },
-    [load, projectId],
+    [activeEnv, load, projectId],
   );
 
   const createFlag = useCallback(
@@ -216,7 +218,6 @@ export function useProject(projectId: string | undefined): ProjectData {
       key: string;
       name: string;
       description?: string;
-      default_value: boolean;
     }) => {
       if (!projectId) throw new Error('Project is not available');
       const created = await createFlagRequest(projectId, data);
@@ -300,7 +301,7 @@ export function useProject(projectId: string | undefined): ProjectData {
   );
 
   const createRule = useCallback(
-    async (flag: Flag, data: { conditions: RuleCondition[]; serve: boolean }) => {
+    async (flag: Flag, data: { conditions: RuleCondition[]; serve: boolean; priority?: number }) => {
       if (!projectId) throw new Error('Project is not available');
       const created = await createFlagRuleRequest(projectId, flag.key, activeEnv, data);
       await load();
@@ -313,7 +314,7 @@ export function useProject(projectId: string | undefined): ProjectData {
     async (
       flag: Flag,
       rule: TargetingRule,
-      data: { conditions?: RuleCondition[]; serve?: boolean },
+      data: { name?: string; conditions?: RuleCondition[]; serve?: boolean; priority?: number },
     ) => {
       if (!projectId) throw new Error('Project is not available');
       const updated = await updateFlagRuleRequest(projectId, flag.key, activeEnv, rule.id, data);
@@ -369,8 +370,8 @@ export function useProject(projectId: string | undefined): ProjectData {
       setActiveEnv,
       refresh,
       toggleKillSwitch,
+      toggleEnableAll,
       updateRollout,
-      updateDefaultValue,
       createFlag,
       createEnvironment,
       createRule,
@@ -391,8 +392,8 @@ export function useProject(projectId: string | undefined): ProjectData {
       playground,
       refresh,
       toggleKillSwitch,
+      toggleEnableAll,
       updateRollout,
-      updateDefaultValue,
       createFlag,
       createEnvironment,
       createRule,

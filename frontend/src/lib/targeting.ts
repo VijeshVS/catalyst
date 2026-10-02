@@ -73,6 +73,7 @@ export interface ConditionDraft {
 }
 
 export interface RuleDraft {
+  name: string;
   conditions: ConditionDraft[];
   serve: boolean;
 }
@@ -83,7 +84,7 @@ export function emptyCondition(): ConditionDraft {
 }
 
 export function emptyRuleDraft(): RuleDraft {
-  return { conditions: [emptyCondition()], serve: true };
+  return { name: '', conditions: [emptyCondition()], serve: true };
 }
 
 export function formatConditionValue(value: unknown): string {
@@ -110,10 +111,12 @@ export function isListOperator(op: RuleOperator): boolean {
 }
 
 export function draftFromRule(rule: {
+  name?: string;
   conditions: RuleCondition[];
   serve: boolean;
 }): RuleDraft {
   return {
+    name: rule.name ?? '',
     serve: rule.serve,
     conditions:
       rule.conditions.length > 0
@@ -131,8 +134,18 @@ export function draftFromRule(rule: {
  * Rules must always carry at least one condition: an empty condition list is
  * an unconditional match server-side, which is almost never intended.
  */
+/**
+ * The server caps a rule at 25 conditions (`RuleCreate.conditions`), so the
+ * builder stops there rather than letting you build something that looks valid
+ * and then fails on save.
+ */
+export const MAX_RULE_CONDITIONS = 25;
+
 export function validateRuleDraft(draft: RuleDraft): string | null {
   if (draft.conditions.length === 0) return 'Add at least one condition.';
+  if (draft.conditions.length > MAX_RULE_CONDITIONS) {
+    return `A rule can hold at most ${MAX_RULE_CONDITIONS} conditions.`;
+  }
   for (const condition of draft.conditions) {
     if (!condition.attr.trim()) return 'Every condition needs an attribute.';
     if (operatorNeedsValue(condition.op) && !condition.value.trim()) {

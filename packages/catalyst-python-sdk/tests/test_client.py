@@ -1,9 +1,7 @@
-"""Client tests: read-per-evaluation, ETag polling, safe defaults, cache."""
+"""Client tests: read-per-evaluation, ETag polling, and failing closed."""
 
 from __future__ import annotations
 
-import json
-import os
 import threading
 import time
 
@@ -15,15 +13,17 @@ from catalyst_sdk import (
     BootstrapError,
     CatalystClient,
     ConfigurationError,
-    Snapshot,
 )
 from catalyst_sdk.evaluator import (
     REASON_DEFAULT,
+    REASON_ENABLE_ALL,
     REASON_FLAG_NOT_FOUND,
     REASON_KILL_SWITCH,
     REASON_NO_SNAPSHOT,
     REASON_ROLLOUT,
-    REASON_RULE_MATCH,
+    REASON_ROLLOUT_OUTSIDE,
+    REASON_RULE_AND_ROLLOUT,
+    REASON_RULE_OUTSIDE_ROLLOUT,
 )
 from catalyst_sdk.transport import BootstrapTransport
 
@@ -57,10 +57,17 @@ def test_client_exposes_snapshot_metadata(make_client):
     assert client.is_ready is True
     assert client.env == "prod"
     assert client.version == 7
-    assert client.flag_keys() == ["ai-assistant", "killed-flag", "new-checkout", "versioned"]
+    assert client.flag_keys() == [
+        "ai-assistant",
+        "everyone-flag",
+        "killed-flag",
+        "new-checkout",
+        "versioned",
+    ]
     stats = client.stats
     assert stats["ready"] is True
-    assert stats["flag_count"] == 4
+    assert stats["read_failed"] is False
+    assert stats["flag_count"] == 5
     assert stats["etag"] == 'W/"p1:prod:1"'
 
 
@@ -71,7 +78,7 @@ def test_rule_one_matches_and_serves_true(make_client):
     client = make_client()
     result = client.evaluate("ai-assistant", "u1", {"email": "dev@acme.com"})
     assert result.value is True
-    assert result.reason == REASON_RULE_MATCH
+    assert result.reason == REASON_RULE_AND_ROLLOUT
     assert result.rule_id == "rule-internal"
     assert result.flag_version == 7
 
@@ -80,28 +87,46 @@ def test_rule_two_serves_false(make_client):
     client = make_client()
     result = client.evaluate("ai-assistant", "u1", {"plan": "trial"})
     assert result.value is False
-    assert result.reason == REASON_RULE_MATCH
+    assert result.reason == REASON_RULE_AND_ROLLOUT
     assert result.rule_id == "rule-beta"
 
 
-def test_no_match_falls_through_to_default(make_client):
+def test_no_rule_match_is_filtered_out(make_client):
+    """Rules exist and none matched, so this user is not in the population."""
     client = make_client()
     result = client.evaluate("ai-assistant", "u1", {"plan": "pro"})
     assert result.value is False
     assert result.reason == REASON_DEFAULT
 
 
+def test_a_matched_user_outside_the_rollout_gets_the_opposite_value(make_client):
+    client = make_client(percentage=0)
+    result = client.evaluate("ai-assistant", "u1", {"email": "dev@acme.com"})
+    assert result.value is False
+    assert result.reason == REASON_RULE_OUTSIDE_ROLLOUT
+    assert result.rule_id == "rule-internal"
+
+
 def test_kill_switch_wins_over_rules(make_client):
     client = make_client()
     result = client.evaluate("killed-flag", "u1", {"email": "a@acme.com"})
-    assert result.value is True  # flag default
+    assert result.value is False
     assert result.reason == REASON_KILL_SWITCH
+
+
+def test_enable_all_wins_over_rules_and_percentage(make_client):
+    # On the killed flag, to show that only the kill switch outranks it.
+    client = make_client(enable_all=True)
+    result = client.evaluate("ai-assistant", "u1", {"email": "a@acme.com"})
+    assert result.value is True
+    assert result.reason == REASON_ENABLE_ALL
+    assert client.evaluate("killed-flag", "u1", {}).reason == REASON_KILL_SWITCH
 
 
 def test_rollout_applies_without_a_matching_rule(make_client):
     client = make_client()
     result = client.evaluate("new-checkout", "user_123", {})
-    assert result.reason == REASON_ROLLOUT
+    assert result.reason in (REASON_ROLLOUT, REASON_ROLLOUT_OUTSIDE)
 
 
 def test_rollout_is_sticky_per_user(make_client):
@@ -114,7 +139,7 @@ def test_rollout_is_sticky_per_user(make_client):
     assert spread == {True, False}
 
 
-def test_unknown_flag_falls_back_to_the_safe_default(make_client):
+def test_unknown_flag_serves_false(make_client):
     client = make_client()
     result = client.evaluate("does-not-exist", "u1", {})
     assert result.value is False
@@ -122,18 +147,11 @@ def test_unknown_flag_falls_back_to_the_safe_default(make_client):
     assert client.is_enabled("does-not-exist") is False
 
 
-def test_safe_default_is_configurable(make_client):
-    client = make_client(default_value=True)
-    assert client.is_enabled("does-not-exist") is True
-    # A per-call override wins over the client default.
-    assert client.is_enabled("does-not-exist", default_value=False) is False
-
-
 def test_get_all_evaluates_every_flag(make_client):
     client = make_client()
     values = client.get_all("u1", {"email": "dev@acme.com"})
     assert values["ai-assistant"] is True
-    assert values["killed-flag"] is True
+    assert values["killed-flag"] is False, "the kill switch means false, not the old default"
     assert set(values) == set(client.flag_keys())
 
 
@@ -145,7 +163,7 @@ def test_evaluation_is_sub_millisecond(make_client):
     for i in range(iterations):
         client.evaluate("ai-assistant", f"user_{i}", {"email": "dev@acme.com", "plan": "pro"})
     per_call_ms = (time.perf_counter() - start) / iterations * 1000
-    assert result.reason == REASON_RULE_MATCH
+    assert result.reason == REASON_RULE_AND_ROLLOUT
     assert per_call_ms < 1.0, f"the decision took {per_call_ms:.3f}ms per call"
 
 
@@ -163,7 +181,6 @@ def test_construction_does_not_read(make_client, transport):
         sdk_key="cp_prod_x",
         project_id="p1",
         host="http://catalyst.invalid",
-        cache_path=False,
     )
     assert fresh.is_ready is False
     assert fresh.version == 0
@@ -221,12 +238,11 @@ def test_get_all_reads_once_for_every_flag(make_client, transport):
     assert len(transport.calls) == 1, "a bulk read must not cost one request per flag"
 
 
-def test_offline_client_never_reads_on_evaluation(tmp_path):
+def test_offline_client_never_reads_on_evaluation():
     client = CatalystClient(
         sdk_key="cp_prod_x",
         project_id="p1",
         host="http://catalyst.invalid",
-        cache_path=False,
         offline=True,
     )
     assert client.refresh_on_evaluate is False
@@ -267,14 +283,15 @@ def test_concurrent_evaluations_collapse_into_one_read(make_client, transport, m
 # ---------------------------------------------------------------------------
 # Read failures
 # ---------------------------------------------------------------------------
-def test_a_failed_read_keeps_serving_the_last_good_snapshot(make_client, transport):
+def test_a_failed_read_is_recorded(make_client, transport):
     client = make_client()
     transport.calls.clear()
     transport.raise_next = BootstrapError("connection reset")
 
-    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
+    # Fails closed: no cached fallback serves stale targeting decisions.
+    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is False
     assert "connection reset" in (client.last_error or "")
-    assert client.version == 7
+    assert client.version == 7, "the snapshot itself is retained for when the API returns"
 
 
 def test_reads_back_off_after_a_failure(make_client, transport):
@@ -288,7 +305,7 @@ def test_reads_back_off_after_a_failure(make_client, transport):
     # The window is open, so further checks are served without retrying, which
     # is what stops an unreachable API from adding its timeout to every call.
     for _ in range(5):
-        assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
+        assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is False
     assert transport.calls == ['W/"p1:prod:1"'], "the backoff window must suppress retries"
 
     # An explicit refresh is a deliberate act, so it ignores the window.
@@ -315,7 +332,9 @@ def test_a_rejected_key_does_not_break_evaluation(make_client, transport):
     transport.calls.clear()
     transport.raise_next = AuthorizationError("HTTP 401")
 
-    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
+    # It fails closed rather than raising, and rather than serving a snapshot
+    # the API can no longer vouch for.
+    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is False
     assert client.last_error == "authorization failed"
 
     # An explicit refresh still raises, because that is where a bad key is fixed.
@@ -334,59 +353,11 @@ def test_raise_on_error_propagates_out_of_evaluation(make_client, transport):
         client.is_enabled("ai-assistant", "u1", {})
 
 
-def test_first_read_failure_falls_back_to_defaults(tmp_path):
+def test_evaluates_to_false_before_any_snapshot():
     client = CatalystClient(
         sdk_key="cp_prod_x",
         project_id="p1",
         host="http://catalyst.invalid",
-        cache_path=False,
-        http_client=_ExplodingHttp(),
-    )
-    assert client.is_enabled("new-checkout", "user_123", {}) is False
-    assert client.is_ready is False
-    client.close()
-
-
-def test_first_read_failure_falls_back_to_the_disk_cache(tmp_path):
-    from catalyst_sdk import Snapshot
-
-    cache = tmp_path / "boot.json"
-    with open(cache, "w", encoding="utf-8") as handle:
-        json.dump(Snapshot.from_payload(default_payload(), etag='W/"p1:prod:7"').to_dict(), handle)
-
-    client = CatalystClient(
-        sdk_key="cp_prod_x",
-        project_id="p1",
-        host="http://catalyst.invalid",
-        env="prod",
-        cache_path=str(cache),
-        http_client=_ExplodingHttp(),
-    )
-    # No snapshot yet, so the read fails and the cached one is used instead.
-    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
-    assert client.version == 7
-    client.close()
-
-
-class _ExplodingHttp:
-    """An HTTP client whose every request fails, standing in for a dead API."""
-
-    def get(self, *args, **kwargs):
-        raise httpx.ConnectError("connection refused")
-
-    def close(self) -> None:
-        return None
-
-
-# ---------------------------------------------------------------------------
-# No-snapshot behaviour
-# ---------------------------------------------------------------------------
-def test_evaluates_to_default_before_any_snapshot(tmp_path):
-    client = CatalystClient(
-        sdk_key="cp_prod_x",
-        project_id="p1",
-        host="http://catalyst.invalid",
-        cache_path=False,
         offline=True,
     )
     assert client.is_ready is False
@@ -430,7 +401,8 @@ def test_changed_environment_replaces_the_snapshot(make_client, transport):
     assert client.refresh() is True
     assert client.version == 9
     assert client.snapshot.etag == 'W/"p1:prod:9"'
-    assert client.is_enabled("ai-assistant", "user_123", {}) is True
+    # "ai-assistant" has rules, so this user must match one to be served.
+    assert client.is_enabled("ai-assistant", "user_123", {"email": "dev@acme.com"}) is True
 
 
 def test_failed_refresh_keeps_serving_the_last_good_snapshot(make_client, transport):
@@ -440,9 +412,14 @@ def test_failed_refresh_keeps_serving_the_last_good_snapshot(make_client, transp
 
     assert client.refresh() is False
     assert client.version == 7, "version must not change on a failed refresh"
-    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
+    assert client.snapshot is not None, "the last good snapshot is retained"
     assert "connection reset" in (client.last_error or "")
     assert transport.calls == ['W/"p1:prod:1"']
+
+    # Reading through evaluate() after that failure serves false.
+    client._next_attempt_at = 0.0
+    transport.raise_next = BootstrapError("still down")
+    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is False
 
 
 def test_authorization_failure_always_raises(make_client, transport):
@@ -511,117 +488,90 @@ def test_refresh_interval_must_be_positive(make_client):
 
 
 # ---------------------------------------------------------------------------
-# Disk cache
+# Failing closed
 # ---------------------------------------------------------------------------
-def test_snapshot_is_written_to_the_disk_cache(make_client, tmp_path):
-    client = make_client()
-    assert os.path.exists(client.cache_path)
-    with open(client.cache_path, encoding="utf-8") as handle:
-        stored = json.load(handle)
-    assert stored["version"] == 7
-    assert stored["env"] == "prod"
-    assert stored["flags"]["ai-assistant"]["rules"][0]["id"] == "rule-internal"
+class _ExplodingHttp:
+    """An HTTP client whose every request fails, standing in for a dead API."""
+
+    def get(self, *args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    def close(self):
+        pass
 
 
-def test_offline_start_loads_from_the_disk_cache(tmp_path):
-    cache = tmp_path / "boot.json"
-    payload = default_payload()
-    payload["version"] = 42
-    Snapshot.from_payload(payload, etag='W/"p1:prod:42"').to_dict()
-    with open(cache, "w", encoding="utf-8") as handle:
-        json.dump(Snapshot.from_payload(payload, etag='W/"p1:prod:42"').to_dict(), handle)
-
-    client = CatalystClient(
-        sdk_key="cp_prod_x",
-        project_id="project-1",
-        host="http://catalyst.invalid",
-        env="prod",
-        cache_path=str(cache),
-        offline=True,
-    )
-    assert client.is_ready is True
-    assert client.version == 42
-    assert client.is_enabled("ai-assistant", "u1", {"email": "dev@acme.com"}) is True
-    client.close()
-
-
-def test_corrupt_disk_cache_is_ignored(tmp_path):
-    cache = tmp_path / "broken.json"
-    cache.write_text("{not json", encoding="utf-8")
+def test_a_first_read_failure_serves_false():
     client = CatalystClient(
         sdk_key="cp_prod_x",
         project_id="p1",
         host="http://catalyst.invalid",
-        cache_path=str(cache),
-        offline=True,
+        http_client=_ExplodingHttp(),
     )
-    assert client.is_ready is False
-    assert client.is_enabled("anything") is False
-    client.close()
-
-
-def test_cache_for_a_different_environment_is_ignored(tmp_path):
-    cache = tmp_path / "prod.json"
-    with open(cache, "w", encoding="utf-8") as handle:
-        json.dump(Snapshot.from_payload(default_payload(), etag="x").to_dict(), handle)
-    client = CatalystClient(
-        sdk_key="cp_prod_x",
-        project_id="p1",
-        host="http://catalyst.invalid",
-        env="staging",
-        cache_path=str(cache),
-        offline=True,
-    )
+    assert client.is_enabled("new-checkout", "user_123", {}) is False
     assert client.is_ready is False
     client.close()
 
 
-def test_clear_cache_removes_the_file(make_client):
-    client = make_client()
-    assert os.path.exists(client.cache_path)
-    assert client.clear_cache() is True
-    assert not os.path.exists(client.cache_path)
-    assert client.clear_cache() is False
+def test_a_failed_read_serves_false_even_with_a_snapshot_in_memory(make_client, transport):
+    """
+    2-E: there is no cached fallback anywhere. Serving a stale targeting
+    decision is worse than not serving the feature, so a dead API means false.
+    """
+    client = make_client(percentage=100)
+    assert client.is_enabled("new-checkout", "user_123", {}) is True
+
+    client._next_attempt_at = 0.0
+    transport.raise_next = BootstrapError("api is down")
+    assert client.is_enabled("new-checkout", "user_123", {}) is False
+
+    # And it recovers as soon as the API answers again.
+    client._next_attempt_at = 0.0
+    assert client.is_enabled("new-checkout", "user_123", {}) is True
 
 
-def test_cache_path_true_uses_the_default_location(monkeypatch, tmp_path):
-    """`cache_path=True` means "use the default", not the literal string "True"."""
-    monkeypatch.setenv("CATALYST_CACHE_DIR", str(tmp_path / "default-cache"))
-    client = CatalystClient(
-        sdk_key="cp_prod_x",
-        project_id="project-1",
-        host="http://catalyst.invalid",
-        cache_path=True,
-        offline=True,
-    )
-    assert client.cache_path is not None
-    assert client.cache_path != "True"
-    assert client.cache_path.endswith(".json")
-    assert "project-1_dev" in client.cache_path, "the cache file is named for the default env"
-    client.close()
+def test_a_304_is_a_successful_read(make_client, transport):
+    """Only a genuine failure flips to false; an unchanged environment is fine."""
+    client = make_client(percentage=100)
+    assert client.is_enabled("new-checkout", "user_123", {}) is True
+
+    transport.calls.clear()
+    assert client.refresh() is False, "304 means unchanged"
+    assert transport.calls == ['W/"p1:prod:1"']
+    assert client.is_enabled("new-checkout", "user_123", {}) is True
 
 
-def test_disk_cache_can_be_disabled(tmp_path):
-    client = CatalystClient(
-        sdk_key="cp_prod_x",
-        project_id="p1",
-        host="http://catalyst.invalid",
-        cache_path=False,
-        offline=True,
-    )
-    assert client.cache_path is None
-    client.close()
+def test_no_snapshot_has_ever_been_written_to_disk():
+    """
+    The disk cache is gone entirely: no constructor argument, no method, no
+    environment variable, and nothing under ~/.cache/catalyst.
+    """
+    import inspect
+
+    signature = inspect.signature(CatalystClient.__init__)
+    assert "cache_path" not in signature.parameters
+    assert not hasattr(CatalystClient, "clear_cache")
+    for name in ("_write_disk_cache", "_load_disk_cache"):
+        assert not hasattr(CatalystClient, name), name
+
+    source = inspect.getsource(CatalystClient)
+    assert "CATALYST_CACHE_DIR" not in source
+    assert ".cache/catalyst" not in source
 
 
-# ---------------------------------------------------------------------------
-# Context manager
-# ---------------------------------------------------------------------------
+def test_the_client_takes_no_default_value_argument():
+    """2-C removed it along with Flag.default_value."""
+    import inspect
+
+    assert "default_value" not in inspect.signature(CatalystClient.__init__).parameters
+    assert "default_value" not in inspect.signature(CatalystClient.evaluate).parameters
+    assert "default_value" not in inspect.signature(CatalystClient.is_enabled).parameters
+
+
 def test_client_is_a_context_manager():
     with CatalystClient(
         sdk_key="cp_prod_x",
         project_id="p1",
         host="http://catalyst.invalid",
-        cache_path=False,
         offline=True,
     ) as client:
         assert client.is_ready is False

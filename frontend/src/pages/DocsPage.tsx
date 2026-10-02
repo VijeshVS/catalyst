@@ -29,7 +29,7 @@ const SECTIONS: DocsSection[] = [
     id: 'configuration',
     label: 'Configuration',
     summary: 'Every constructor argument and what it does.',
-    keywords: ['options', 'arguments', 'kwargs', 'timeout', 'default_value', 'settings', 'config'],
+    keywords: ['options', 'arguments', 'kwargs', 'timeout', 'settings', 'config'],
   },
   {
     id: 'how-it-works',
@@ -46,8 +46,8 @@ const SECTIONS: DocsSection[] = [
   {
     id: 'precedence',
     label: 'Evaluation precedence',
-    summary: 'Kill switch, then rules, then rollout, then the default.',
-    keywords: ['order', 'kill switch', 'rollout', 'percentage', 'murmur', 'bucket', 'sticky'],
+    summary: 'Kill switch, then enable-all, then rules, then the rollout.',
+    keywords: ['order', 'kill switch', 'enable all', 'rollout', 'percentage', 'murmur', 'bucket', 'sticky', 'filter'],
   },
   {
     id: 'operators',
@@ -75,15 +75,15 @@ const SECTIONS: DocsSection[] = [
   },
   {
     id: 'offline',
-    label: 'Offline & disk cache',
-    summary: 'The last good snapshot on disk, for cold starts and air-gapped runs.',
-    keywords: ['cache_path', 'catalyst_cache_dir', 'offline', 'disk', 'fallback', 'cold start'],
+    label: 'Failing closed',
+    summary: 'An unreachable Catalyst serves false. There is no cached fallback.',
+    keywords: ['offline', 'fail closed', 'false', 'unreachable', 'outage', 'cold start'],
   },
   {
     id: 'errors',
     label: 'Error handling',
-    summary: 'What raises, what degrades, and every evaluation reason.',
-    keywords: ['exception', 'authorizationerror', 'bootstraperror', 'reason', 'fail safe', 'timeout'],
+    summary: 'What raises, what resolves to false, and every evaluation reason.',
+    keywords: ['exception', 'authorizationerror', 'bootstraperror', 'reason', 'fail closed', 'timeout'],
   },
   {
     id: 'demo',
@@ -174,7 +174,7 @@ const INSPECT = `result = client.evaluate("new-checkout",
                            attributes={"email": "alice@acme.com"})
 
 result.value          # True
-result.reason         # 'RULE_MATCH'
+result.reason         # 'RULE_AND_ROLLOUT'
 result.rule_id        # the targeting rule that fired
 result.flag_version   # snapshot version the decision came from`;
 
@@ -211,25 +211,25 @@ client.stats        # refresh counters, etag, host, last error`;
 
 const OFFLINE = `from catalyst_sdk import CatalystClient
 
-# Warm start with no network at all, from the on-disk snapshot.
+# No network at all. Every check serves false.
 client = CatalystClient(
     sdk_key=..., project_id=...,
     offline=True,
 )
 
-# A failed read also falls back to the cache, then to default_value.`;
+# There is no disk cache: an unreachable Catalyst always serves false.`;
 
 const CONTEXT = `ctx = request.headers.get("x-catalyst-context")  # JSON
 
 result = client.evaluate("new-checkout", user_id="user_123")
-if result.reason == "RULE_MATCH":
-    log.info("rule %s served %s", result.rule_id, result.value)
+if result.rule_id:
+    log.info("rule %s served %s (%s)", result.rule_id, result.value, result.reason)
 else:
     log.info("no rule matched (%s)", result.reason)`;
 
 const ERRORS = `from catalyst_sdk import CatalystClient, AuthorizationError, BootstrapError
 
-client = CatalystClient(sdk_key=..., project_id=..., default_value=True)
+client = CatalystClient(sdk_key=..., project_id=...)
 
 try:
     client.refresh()
@@ -237,8 +237,8 @@ except AuthorizationError:
     # Key rejected or revoked. Will not fix itself -> handle loudly.
     alert_oncall()
 except BootstrapError:
-    # Network blip. The previous snapshot is still being served.
-    logger.warning("refresh failed, serving stale snapshot")
+    # Network blip. There is no cached fallback: checks serve false.
+    logger.warning("refresh failed, serving false")
 
 # Checks never raise. Set raise_on_error=True to find out instead.
 client.is_enabled("new-checkout", user_id="user_123")  # -> False on failure`;
@@ -271,21 +271,22 @@ const CONFIG_ROWS: [string, string, string][] = [
   ['host', 'no', 'Base URL of the Catalyst API. Omit it for the hosted API, or set CATALYST_HOST.'],
   ['env', 'no', 'Which environment snapshot to load. Defaults to dev.'],
   ['timeout', 'no', 'Per-request HTTP timeout in seconds. Defaults to 5.0.'],
-  ['default_value', 'no', 'Served for an unknown flag or when no snapshot can be loaded. Defaults to False.'],
   ['refresh_on_evaluate', 'no', 'Read the snapshot as part of each check. Defaults to True.'],
   ['failure_backoff', 'no', 'Seconds to stop retrying after a failed read. Defaults to 5.0.'],
-  ['offline', 'no', 'Skip the API entirely and load only from the disk cache. Implies refresh_on_evaluate=False.'],
-  ['cache_path', 'no', 'None or True uses ~/.cache/catalyst, or pass a path. False disables it.'],
-  ['raise_on_error', 'no', 'Let read failures raise out of evaluation instead of degrading.'],
+  ['offline', 'no', 'Skip the API entirely. Implies refresh_on_evaluate=False. Every check serves false.'],
+  ['raise_on_error', 'no', 'Let read failures raise out of evaluation instead of resolving to false.'],
 ];
 
 const REASONS: [string, string][] = [
-  ['KILL_SWITCH_ACTIVE', 'The emergency kill switch is engaged, so the flag default is served.'],
-  ['RULE_MATCH', 'A targeting rule matched. Inspect rule_id for which one.'],
-  ['PERCENTAGE_ROLLOUT', 'No rule matched, but the user fell inside the sticky rollout bucket.'],
-  ['DEFAULT_VALUE', 'Nothing matched. The flag default is served.'],
-  ['FLAG_NOT_FOUND', 'The key is not in the snapshot. Serves default_value.'],
-  ['NO_SNAPSHOT', 'No snapshot has loaded yet. Serves default_value.'],
+  ['KILL_SWITCH_ACTIVE', 'The kill switch is on, so everyone gets false and nothing else is consulted.'],
+  ['ENABLE_ALL_USERS', 'Enabled to all users, so everyone gets true with no targeting.'],
+  ['RULE_AND_ROLLOUT', 'A rule matched and the user fell inside the rollout, so the rule serves its value.'],
+  ['RULE_OUTSIDE_ROLLOUT', 'A rule matched but the user fell outside the rollout, so the opposite value is served.'],
+  ['PERCENTAGE_ROLLOUT', 'No rules defined, and the user fell inside the sticky rollout bucket.'],
+  ['PERCENTAGE_OUTSIDE_ROLLOUT', 'No rules defined, and the user fell outside the rollout (including at 0%).'],
+  ['DEFAULT_VALUE', 'Rules exist and none matched, so the user is filtered out of the audience and gets false.'],
+  ['FLAG_NOT_FOUND', 'The key is not in the snapshot. Serves false.'],
+  ['NO_SNAPSHOT', 'No snapshot has loaded yet, or the last read failed. Serves false.'],
 ];
 
 const OPERATORS: [string, string, string][] = [
@@ -504,8 +505,9 @@ export function DocsPage() {
                 read, so a thread pool or a busy event loop does not stampede the API.
               </li>
               <li>
-                <strong>Degrades, never throws.</strong> A failed read keeps serving the last good
-                snapshot, then the disk cache, then <code>default_value</code>.
+                <strong>Fails closed, never throws.</strong> A failed read serves <code>false</code>.
+                There is no disk cache and no last-good fallback, because serving stale targeting
+                decisions is worse than not serving the feature.
               </li>
             </ul>
             <p className="docs-note">
@@ -548,11 +550,30 @@ export function DocsPage() {
             <h2>Evaluation precedence</h2>
             <p>The SDK mirrors the server exactly, in this order:</p>
             <ol className="docs-steps">
-              <li><strong>Emergency kill switch</strong> &rarr; serve the flag default</li>
-              <li><strong>Targeting rules</strong>, ascending <code>priority</code>, first match wins &rarr; serve its value</li>
-              <li><strong>Percentage rollout</strong> &rarr; deterministic Murmur3 bucket over <code>flag_key:user_id</code></li>
-              <li><strong>Flag default</strong></li>
+              <li>
+                <strong>Emergency kill switch</strong> &rarr; everyone gets <code>false</code>, and
+                nothing else is consulted
+              </li>
+              <li>
+                <strong>Enable to all users</strong> &rarr; everyone gets <code>true</code>, with no
+                targeting at all
+              </li>
+              <li>
+                <strong>Targeting rules</strong>, ascending <code>priority</code>, first match wins
+                &rarr; puts the user in the audience. If rules exist and none matched, the user is
+                filtered out and gets <code>false</code>.
+              </li>
+              <li>
+                <strong>Percentage rollout</strong> &rarr; a deterministic Murmur3 bucket over{' '}
+                <code>flag_key:user_id</code> splits whoever is left, so <code>0%</code> serves
+                nobody and <code>100%</code> serves everybody. A matched user outside the bucket
+                gets the <em>opposite</em> of the rule's value.
+              </li>
             </ol>
+            <p>
+              The bucket is a fixed number per user, so <strong>raising a percentage only ever adds
+              users; it can never remove one</strong>. That is what makes a gradual rollout safe.
+            </p>
             <p>
               Bucketing is pure MurmurHash3, vendored rather than pulled from a native extension, and
               verified against the server on every release. The same user always lands in the same
@@ -597,7 +618,6 @@ export function DocsPage() {
     flag_key: str,
     user_id: str = "",
     attributes: dict | None = None,
-    default_value: bool | None = None,
 ) -> bool`} />
 
             <h3>evaluate</h3>
@@ -657,12 +677,17 @@ export function DocsPage() {
           </section>
 
           <section id="offline" className="docs-section">
-            <h2>Offline &amp; disk cache</h2>
+            <h2>Failing closed</h2>
             <p>
-              The last good snapshot is written to <code>~/.cache/catalyst</code> using an atomic
-              write-then-rename, so a crash cannot leave a truncated file. Override the directory
-              with <code>CATALYST_CACHE_DIR</code>. A first read that fails falls back here before
-              giving up on <code>default_value</code>.
+              If the SDK cannot reach Catalyst, every check serves <code>false</code>. There is no
+              disk cache and no last-good-snapshot fallback: serving stale targeting decisions is
+              worse than not serving the feature, and a flag check inside someone else's request
+              must never become a 500.
+            </p>
+            <p>
+              A <code>304 Not Modified</code> is a <em>successful</em> read. The snapshot in memory
+              stays valid and keeps serving; only a genuine failure flips to false, and the next
+              successful read clears it.
             </p>
             <CodeBlock code={OFFLINE} />
           </section>
@@ -671,8 +696,8 @@ export function DocsPage() {
             <h2>Error handling</h2>
             <p>
               Evaluation never raises. An unknown flag, a missing snapshot, and a failed read all
-              resolve to <code>default_value</code>, which fails safe to <code>False</code> &mdash;
-              a flag check inside someone else's request must not become a 500.
+              resolve to <code>false</code> &mdash; a flag check inside someone else's request must
+              not become a 500, and must not turn a feature on by accident.
             </p>
             <CodeBlock code={ERRORS} />
             <div className="docs-table-wrap">
@@ -694,12 +719,12 @@ export function DocsPage() {
                   <tr>
                     <td><code>BootstrapError</code></td>
                     <td>Network or protocol failure</td>
-                    <td>Logged; the previous snapshot keeps serving. Set <code>raise_on_error</code> to propagate.</td>
+                    <td>Logged; evaluation resolves to <code>false</code>. Set <code>raise_on_error</code> to propagate.</td>
                   </tr>
                   <tr>
                     <td>read failure during <code>is_enabled</code></td>
                     <td>API unreachable, key revoked, or <code>raise_on_error</code> set</td>
-                    <td>Absorbed by default: last good snapshot, then the disk cache, then the default. Set <code>raise_on_error</code> to see it.</td>
+                    <td>Absorbed by default and resolved to <code>false</code>. Set <code>raise_on_error</code> to see it.</td>
                   </tr>
                 </tbody>
               </table>
