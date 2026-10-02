@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { copyText } from '../lib/clipboard';
+
 interface CodeBlockProps {
   /** The snippet to display, without the language label. */
   code: string;
@@ -15,15 +17,11 @@ export function CodeBlock({ code, language = 'python', caption, copyable = true 
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      // Clipboard access can be denied; leave the button un-ticked rather than
-      // claiming a copy succeeded.
-      setCopied(false);
-    }
+    // Clipboard access can be denied; leave the button un-ticked rather than
+    // claiming a copy succeeded.
+    if (!(await copyText(code))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
   };
 
   return (

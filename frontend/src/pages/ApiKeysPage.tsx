@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
-import { createApiKey, fetchApiKeys, revokeApiKey } from '../api';
+import { createApiKey, deleteApiKey, fetchApiKeys } from '../api';
 import type { ApiKey } from '../api';
+import { copyText } from '../lib/clipboard';
 
 export function ApiKeysPage() {
   const { projectId } = useParams();
@@ -79,42 +80,29 @@ export function ApiKeysPage() {
     }
   };
 
-  const handleRevokeKey = async (keyId: string) => {
+  const handleDeleteKey = async (keyId: string, name: string) => {
     if (!projectId) return;
-    if (!window.confirm('Are you sure you want to revoke this API key? It cannot be undone.')) {
+    if (
+      !window.confirm(
+        `Delete "${name}"? Any SDK still using this key stops working immediately. This cannot be undone.`,
+      )
+    ) {
       return;
     }
 
     try {
-      await revokeApiKey(projectId, keyId);
+      await deleteApiKey(projectId, keyId);
       await _loadKeys();
     } catch (err) {
-      setError('Failed to revoke API key');
+      setError('Failed to delete API key');
       console.error(err);
     }
   };
 
   const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      try {
-        document.execCommand('copy');
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } finally {
-        document.body.removeChild(textarea);
-      }
-    }
+    if (!(await copyText(text))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   if (!projectId) {
@@ -142,32 +130,20 @@ export function ApiKeysPage() {
       ) : (
         <div className="key-list">
           {keys.map((key: ApiKey) => (
-            <div key={key.id} className={`key-card ${key.revoked ? 'revoked' : 'active'}`}>
-              <div className="key-header">
-                <div>
-                  <h3>{key.name}</h3>
-                  <div className="key-meta">
-                    <span className="key-env">{key.env}</span>
-                    <span className="key-separator">•</span>
-                    <span className="key-created">Created {new Date(key.created_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
-                <div className="key-actions">
-                  {key.revoked ? (
-                    <span className="key-status revoked-status">Revoked</span>
-                  ) : (
-                    <div className="key-actions-group">
-                      <button
-                        type="button"
-                        className="btn-secondary btn-revoke"
-                        onClick={() => handleRevokeKey(key.id)}
-                      >
-                        Revoke
-                      </button>
-                    </div>
-                  )}
-                </div>
+            <div key={key.id} className="key-card active">
+              <h3>{key.name}</h3>
+              <div className="key-meta">
+                <span className="key-env">{key.env}</span>
+                <span className="key-separator">•</span>
+                <span className="key-created">Created {new Date(key.created_at).toLocaleDateString()}</span>
               </div>
+              <button
+                type="button"
+                className="btn-secondary btn-revoke"
+                onClick={() => handleDeleteKey(key.id, key.name)}
+              >
+                Delete
+              </button>
             </div>
           ))}
         </div>

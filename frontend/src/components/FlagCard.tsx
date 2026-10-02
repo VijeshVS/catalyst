@@ -1,4 +1,7 @@
+import { useState } from 'react';
+
 import type { Flag } from '../api';
+import { copyText } from '../lib/clipboard';
 import { EvalPlayground } from './EvalPlayground';
 import { KillSwitchButton } from './KillSwitchButton';
 import { RolloutSlider } from './RolloutSlider';
@@ -8,6 +11,33 @@ import type { ProjectData } from '../workspace/useProject';
 interface FlagCardProps {
   flag: Flag;
   projectData: ProjectData;
+}
+
+function CopyFlagKey({ flagKey }: { flagKey: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    // Do not claim a copy that did not happen: clipboard access can be denied.
+    if (!(await copyText(flagKey))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  return (
+    <button
+      type="button"
+      className="flag-key-copy"
+      onClick={copy}
+      title={copied ? 'Copied' : `Copy flag key ${flagKey}`}
+      aria-label={`Copy flag key ${flagKey}`}
+      data-copied={copied}
+    >
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+        <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M10.5 3.5h-7a1 1 0 0 0-1 1v7" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
 }
 
 export function FlagCard({ flag, projectData }: FlagCardProps) {
@@ -28,6 +58,7 @@ export function FlagCard({ flag, projectData }: FlagCardProps) {
           <div className="flag-title-area">
             <h3 className="flag-name">{flag.name}</h3>
             <span className="flag-key-badge">{flag.key}</span>
+            <CopyFlagKey flagKey={flag.key} />
           </div>
           {flag.description && <p className="flag-desc">{flag.description}</p>}
         </div>

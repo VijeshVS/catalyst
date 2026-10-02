@@ -15,6 +15,16 @@ Reads the environment snapshot when it evaluates, not at import time:
                          attributes={"email": "alice@acme.com"}):
         ...
 
+The identity can also be attached once, either on the client or with
+:meth:`CatalystClient.for_user`, so it is not repeated at every call site:
+
+    client = CatalystClient(..., user_id="user_123",
+                            attributes={"email": "alice@acme.com"})
+    client.is_enabled("ai-assistant")
+
+    alice = client.for_user("alice", {"email": "alice@acme.com"})
+    alice.is_enabled("ai-assistant")
+
 The client talks to the hosted API by default; pass ``host=`` (or set
 ``CATALYST_HOST``) to point it somewhere else.
 
@@ -84,6 +94,13 @@ class CatalystClient:
         raise_on_error: If ``True``, read failures propagate out of evaluation
             and :meth:`refresh` re-raises transport errors, instead of
             resolving to ``False``.
+        user_id: Sticky rollout key to use when a call omits one. Attach the
+            identity here for a client that always acts for the same person, a
+            background job, or a script.
+        attributes: Context attributes to use when a call omits them. Merged
+            with, not replaced by, anything passed per call.
+
+    Use :meth:`for_user` instead when one client serves many users.
 
     Raises:
         ConfigurationError: on missing or unusable settings.
@@ -101,6 +118,8 @@ class CatalystClient:
         offline: bool = False,
         raise_on_error: bool = False,
         http_client: Optional[Any] = None,
+        user_id: str = "",
+        attributes: Optional[Attributes] = None,
     ) -> None:
         if not sdk_key or not str(sdk_key).strip():
             raise ConfigurationError("sdk_key is required")
@@ -116,6 +135,11 @@ class CatalystClient:
         # the per-evaluation read rather than competing with it.
         self.refresh_on_evaluate = bool(refresh_on_evaluate) and not offline
         self.failure_backoff = max(0.0, float(failure_backoff))
+        # Default identity, used by any call that omits its own. Copied so a
+        # later mutation of the caller's dict cannot change how this client
+        # evaluates.
+        self._user_id = str(user_id or "")
+        self._attributes: Dict[str, Any] = dict(attributes or {})
 
         self._transport = BootstrapTransport(
             host=self.host,
@@ -171,6 +195,64 @@ class CatalystClient:
     @property
     def last_error(self) -> Optional[str]:
         return self._last_error
+
+    @property
+    def user_id(self) -> str:
+        """The default sticky rollout key, or ``""`` when none is attached."""
+        return self._user_id
+
+    @property
+    def attributes(self) -> Dict[str, Any]:
+        """The default context attributes. A copy, so callers cannot mutate them."""
+        return dict(self._attributes)
+
+    def for_user(
+        self,
+        user_id: str = "",
+        attributes: Optional[Attributes] = None,
+    ) -> "UserScopedClient":
+        """
+        Returns a view of this client bound to one user.
+
+        The returned object shares this client's transport and snapshot, so it
+        costs no extra round trip and starts no second refresh loop. It is
+        meant for a process serving many users::
+
+            sdk = CatalystClient(sdk_key=..., project_id=...)
+            alice = sdk.for_user("alice", {"email": "alice@acme.com"})
+            if alice.is_enabled("new-checkout"):
+                ...
+
+        The client's own defaults are inherited and merged, so a constructor
+        ``attributes=`` and a ``for_user`` attribute combine instead of one
+        replacing the other. A per-call argument still wins.
+
+        There is no :meth:`for_user` on the returned view: re-binding from a
+        scoped view would quietly carry the previous user's attributes over to
+        the next one.
+        """
+        return UserScopedClient(
+            self,
+            user_id=str(user_id or self._user_id),
+            attributes={**self._attributes, **(attributes or {})},
+        )
+
+    def _resolve_context(
+        self,
+        user_id: str,
+        attributes: Optional[Attributes],
+    ) -> tuple[str, Dict[str, Any]]:
+        """
+        Folds a call's arguments onto the client's default context.
+
+        A per-call ``user_id`` replaces the default, while ``attributes``
+        merge: dropping the client's attributes because one call added an
+        email would be a silent targeting change.
+        """
+        return (
+            user_id or self._user_id,
+            {**self._attributes, **(attributes or {})},
+        )
 
     @property
     def stats(self) -> Dict[str, Any]:
@@ -268,6 +350,7 @@ class CatalystClient:
         attributes: Optional[Attributes] = None,
     ) -> EvaluationResult:
         """The decision itself: pure, local, and safe to call in a loop."""
+        user_id, attributes = self._resolve_context(user_id, attributes)
         snapshot = self._snapshot
         if snapshot is None or self._read_failed:
             return EvaluationResult(
@@ -290,8 +373,8 @@ class CatalystClient:
             enable_all=flag.enable_all,
             percentage=flag.percentage,
             rules=flag.rules,
-            user_id=user_id or "",
-            attributes=attributes or {},
+            user_id=user_id,
+            attributes=attributes,
             flag_version=flag.version,
         )
 
@@ -308,7 +391,9 @@ class CatalystClient:
             flag_key: The flag to check.
             user_id: Sticky rollout key. Required for percentage rollouts to
                 be meaningful; an empty string is hashed like any other value.
+                Falls back to the client's ``user_id``.
             attributes: Context attributes matched against targeting rules.
+                Merged onto the client's ``attributes``.
         """
         return self.evaluate(flag_key, user_id, attributes).value
 
@@ -321,6 +406,7 @@ class CatalystClient:
         Evaluates every flag in the snapshot, e.g. to render a UI once.
 
         Reads the snapshot a single time, no matter how many flags it holds.
+        Both arguments default to the client's own context.
         """
         self._read_snapshot()
         return {
@@ -486,6 +572,107 @@ class CatalystClient:
         return f"<CatalystClient {self.project_id[:8]}… {self.env} {state}>"
 
 
+class UserScopedClient:
+    """
+    A :class:`CatalystClient` view bound to one user.
+
+    Created by :meth:`CatalystClient.for_user`. It holds no transport, no
+    snapshot, and no refresh thread of its own: every attribute and method it
+    does not define is answered by the client it was derived from, so scoping a
+    client is free and two views of the same client share one snapshot and one
+    conditional read.
+    """
+
+    __slots__ = ("_attributes", "_client", "_user_id")
+
+    def __init__(
+        self,
+        client: CatalystClient,
+        user_id: str = "",
+        attributes: Optional[Attributes] = None,
+    ) -> None:
+        self._client = client
+        self._user_id = str(user_id or "")
+        self._attributes: Dict[str, Any] = dict(attributes or {})
+
+    @property
+    def client(self) -> CatalystClient:
+        """The client this view was derived from."""
+        return self._client
+
+    @property
+    def user_id(self) -> str:
+        return self._user_id
+
+    @property
+    def attributes(self) -> Dict[str, Any]:
+        """A copy of the bound attributes."""
+        return dict(self._attributes)
+
+    # -- Evaluation ----------------------------------------------------
+    def evaluate(self, flag_key: str) -> EvaluationResult:
+        """Evaluates one flag for the bound user. Same behaviour as the client."""
+        return self._client.evaluate(flag_key, self._user_id, self._attributes)
+
+    def is_enabled(self, flag_key: str) -> bool:
+        """The hot path, with the identity already attached."""
+        return self.evaluate(flag_key).value
+
+    def get_all(self) -> Dict[str, bool]:
+        """Every flag in the snapshot, decided for the bound user."""
+        return self._client.get_all(self._user_id, self._attributes)
+
+    # -- Everything else is the client's -------------------------------
+    @property
+    def snapshot(self) -> Optional[Snapshot]:
+        return self._client.snapshot
+
+    @property
+    def version(self) -> int:
+        return self._client.version
+
+    @property
+    def is_ready(self) -> bool:
+        return self._client.is_ready
+
+    @property
+    def last_error(self) -> Optional[str]:
+        return self._client.last_error
+
+    @property
+    def stats(self) -> Dict[str, Any]:
+        return self._client.stats
+
+    def flag_keys(self) -> List[str]:
+        return self._client.flag_keys()
+
+    def refresh(self) -> bool:
+        return self._client.refresh()
+
+    def start_auto_refresh(
+        self,
+        interval: float = 30.0,
+        on_error: Optional[Callable[[BaseException], None]] = None,
+    ) -> threading.Thread:
+        return self._client.start_auto_refresh(interval, on_error)
+
+    def stop_auto_refresh(self, timeout: float = 5.0) -> None:
+        self._client.stop_auto_refresh(timeout)
+
+    def close(self) -> None:
+        """Closes the shared client. A view owns no resources of its own."""
+        self._client.close()
+
+    def __enter__(self) -> "UserScopedClient":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<UserScopedClient user={self._user_id or '(none)'}>"
+
+
 __all__ = [
     "DEFAULT_HOST",
     "HOST_ENV_VAR",
@@ -496,4 +683,5 @@ __all__ = [
     "EvaluationResult",
     "FlagSnapshot",
     "Snapshot",
+    "UserScopedClient",
 ]

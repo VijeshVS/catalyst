@@ -15,12 +15,16 @@ The hosted API is used by default; pass `host=` to point somewhere else.
     client.is_enabled("ai-assistant", user_id="user_123",
                       attributes={"email": "alice@acme.com"})
 
+The identity can also be attached once with `user_id=` / `attributes=` on the
+client, or per user with `client.for_user(...)`, so a request handler does not
+repeat it at every call site.
+
 Each check sends a conditional request, so an unchanged environment costs a 304
 with no body, and the decision itself is made locally. Pass
 `refresh_on_evaluate=False` to evaluate purely from memory instead.
 """
 
-from .client import CatalystClient
+from .client import CatalystClient, UserScopedClient
 from .evaluator import (
     PRESENCE_OPERATORS,
     REASON_DEFAULT,
@@ -89,6 +93,7 @@ __all__ = [
     "RULE_OPERATORS",
     "Rule",
     "Snapshot",
+    "UserScopedClient",
     "__version__",
     "evaluate_flag",
     "get_user_bucket",

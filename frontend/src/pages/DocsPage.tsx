@@ -56,6 +56,12 @@ const SECTIONS: DocsSection[] = [
     keywords: ['equals', 'in', 'contains', 'greater_than', 'exists', 'comparison', 'conditions'],
   },
   {
+    id: 'user-context',
+    label: 'Attaching the user',
+    summary: 'Bind user_id and attributes once, on the client or with for_user.',
+    keywords: ['for_user', 'user_id', 'attributes', 'bind', 'context', 'per request', 'scoped', 'identity'],
+  },
+  {
     id: 'api',
     label: 'API reference',
     summary: 'is_enabled, evaluate, get_all, and route wrappers.',
@@ -107,6 +113,27 @@ if client.is_enabled("new-checkout", user_id="user_123",
     render_express_checkout()
 else:
     render_coming_soon()`;
+
+const BOUND_CLIENT = `# One client that always acts for the same person: a script or a job.
+client = CatalystClient(
+    sdk_key=..., project_id=...,
+    user_id="user_123",
+    attributes={"email": "alice@acme.com"},
+)
+
+client.is_enabled("new-checkout")   # identity comes from the client`;
+
+const FOR_USER = `# One long-lived client serving many users: a web app.
+sdk = CatalystClient(sdk_key=..., project_id=...)
+
+@app.get("/checkout")
+def checkout(request):
+    alice = sdk.for_user(request.user.id, {"email": request.user.email})
+    if alice.is_enabled("new-checkout"):
+        return render_express_checkout()
+
+# for_user returns a view, not a new client: it shares the transport, the
+# snapshot, and the refresh loop, so scoping per request costs nothing.`;
 
 const HOSTS = `# Point one client somewhere else (staging, self-hosted, a tunnel).
 client = CatalystClient(
@@ -234,7 +261,7 @@ client = CatalystClient(sdk_key=..., project_id=...)
 try:
     client.refresh()
 except AuthorizationError:
-    # Key rejected or revoked. Will not fix itself -> handle loudly.
+    # Key rejected, or revoked/deleted. Will not fix itself -> handle loudly.
     alert_oncall()
 except BootstrapError:
     # Network blip. There is no cached fallback: checks serve false.
@@ -275,6 +302,8 @@ const CONFIG_ROWS: [string, string, string][] = [
   ['failure_backoff', 'no', 'Seconds to stop retrying after a failed read. Defaults to 5.0.'],
   ['offline', 'no', 'Skip the API entirely. Implies refresh_on_evaluate=False. Every check serves false.'],
   ['raise_on_error', 'no', 'Let read failures raise out of evaluation instead of resolving to false.'],
+  ['user_id', 'no', 'Default sticky rollout key, used when a call omits one.'],
+  ['attributes', 'no', 'Default context attributes, merged with whatever a call passes.'],
 ];
 
 const REASONS: [string, string][] = [
@@ -609,11 +638,45 @@ export function DocsPage() {
             </p>
           </section>
 
+          <section id="user-context" className="docs-section">
+            <h2>Attaching the user</h2>
+            <p>
+              Passing <code>user_id</code> and <code>attributes</code> on every check is tedious, and
+              in a request handler it lands on every call site. Attach the identity once instead.
+            </p>
+            <CodeBlock code={BOUND_CLIENT} />
+            <p>
+              When one process serves many users, bind per user instead. The returned view shares
+              the client's transport and snapshot, so it costs no extra request and starts no second
+              refresh loop.
+            </p>
+            <CodeBlock code={FOR_USER} />
+            <ul className="docs-bullets">
+              <li>
+                A per-call <code>user_id</code> replaces the bound one, while a per-call{' '}
+                <code>attributes</code> is <strong>merged</strong> onto the bound ones, so adding one
+                attribute never silently drops the others.
+              </li>
+              <li>
+                <code>for_user</code> inherits the client's constructor defaults and merges on top of
+                them.
+              </li>
+              <li>
+                The scoped view has no <code>for_user</code> of its own, so it cannot re-bind and
+                carry one user's attributes over to the next.
+              </li>
+              <li>
+                A client with neither attached behaves exactly as before: an empty{' '}
+                <code>user_id</code> is hashed like any other value.
+              </li>
+            </ul>
+          </section>
+
           <section id="api" className="docs-section">
             <h2>API reference</h2>
 
             <h3>is_enabled</h3>
-            <p>The hot path: one conditional read, then a local decision.</p>
+            <p>The hot path: one conditional read, then a local decision. Identity falls back to the client's.</p>
             <CodeBlock code={`client.is_enabled(
     flag_key: str,
     user_id: str = "",
@@ -713,7 +776,7 @@ export function DocsPage() {
                   </tr>
                   <tr>
                     <td><code>AuthorizationError</code></td>
-                    <td>Key rejected or revoked</td>
+                    <td>Key rejected, or revoked or deleted</td>
                     <td>Always propagates. A bad key will not fix itself.</td>
                   </tr>
                   <tr>
@@ -723,7 +786,7 @@ export function DocsPage() {
                   </tr>
                   <tr>
                     <td>read failure during <code>is_enabled</code></td>
-                    <td>API unreachable, key revoked, or <code>raise_on_error</code> set</td>
+                    <td>API unreachable, key unknown, or <code>raise_on_error</code> set</td>
                     <td>Absorbed by default and resolved to <code>false</code>. Set <code>raise_on_error</code> to see it.</td>
                   </tr>
                 </tbody>

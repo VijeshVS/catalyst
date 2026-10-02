@@ -1,6 +1,6 @@
 [project]
 name = "sdk-catalyst"
-version = "0.3.0"
+version = "0.4.0"
 description = "Feature flag client for the Catalyst platform, evaluated locally against a conditionally refreshed snapshot"
 readme = "README.md"
 requires-python = ">=3.11"

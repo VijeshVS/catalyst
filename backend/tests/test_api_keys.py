@@ -212,8 +212,8 @@ async def test_bootstrap_defaults_to_dev_environment(anon_client):
 
 
 @pytest.mark.asyncio
-async def test_revoke_api_key(anon_client):
-    """Test revoking an API key."""
+async def test_delete_api_key(anon_client):
+    """A deleted key is gone from the list, not left behind as a tombstone."""
     # Register and login
     register = await anon_client.post(
         f"{API}/auth/register",
@@ -249,19 +249,29 @@ async def test_revoke_api_key(anon_client):
     assert key_response.status_code == 201
     key_id = key_response.json()["id"]
 
-    # Revoke the key
-    revoke_response = await anon_client.delete(
+    # Delete the key
+    delete_response = await anon_client.delete(
         f"{API}/projects/{project_id}/keys/{key_id}",
     )
-    assert revoke_response.status_code == 204
+    assert delete_response.status_code == 204
 
-    # Verify key is revoked
+    # The key is gone rather than retained as a revoked card forever.
     list_response = await anon_client.get(f"{API}/projects/{project_id}/keys")
     assert list_response.status_code == 200
     keys_data = list_response.json()
 
-    revoked_key = next(k for k in keys_data["keys"] if k["id"] == key_id)
-    assert revoked_key["revoked"] is True
+    assert key_id not in [k["id"] for k in keys_data["keys"]]
+
+    # The audit trail is what still records that the key existed.
+    audit_response = await anon_client.get(
+        f"{API}/audit", params={"project_id": project_id}
+    )
+    assert audit_response.status_code == 200
+    deletions = [
+        entry for entry in audit_response.json() if entry["action"] == "api_key.deleted"
+    ]
+    assert len(deletions) == 1
+    assert deletions[0]["before"]["name"] == "To Be Revoked"
 
 
 @pytest.mark.asyncio
@@ -409,8 +419,8 @@ async def test_sdk_key_with_invalid_project(anon_client):
 
 
 @pytest.mark.asyncio
-async def test_revoked_sdk_key_denied(anon_client):
-    """Test that revoked SDK keys are denied access."""
+async def test_deleted_sdk_key_denied(anon_client):
+    """A deleted SDK key stops authenticating."""
     # Register and login
     register = await anon_client.post(
         f"{API}/auth/register",
@@ -446,21 +456,21 @@ async def test_revoked_sdk_key_denied(anon_client):
     assert key_response.status_code == 201
     api_key = key_response.json()["key"]
 
-    # Revoke the key
+    # Delete the key
     key_id = key_response.json()["id"]
-    revoke_response = await anon_client.delete(
+    delete_response = await anon_client.delete(
         f"{API}/projects/{project_id}/keys/{key_id}",
     )
-    assert revoke_response.status_code == 204
+    assert delete_response.status_code == 204
 
-    # Try to use revoked key
+    # The key is dead: there is no row left to match its hash against.
     anon_client.headers.pop("Authorization", None)
     response = await anon_client.get(
         f"{API}/bootstrap",
         params={"project_id": project_id, "env": "prod"},
         headers={"X-SDK-Key": api_key},
     )
-    assert response.status_code == 401
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -163,10 +163,10 @@ Evaluation order: kill switch → enable-to-all → rules by ascending priority 
 - No response other than creation returns any part of a key.
 - `env` defaults to `dev` on `/bootstrap`, `/evaluate`, and the SDK client, so one system never defaults to two environments.
 - Keys are project-scoped and cannot access resources outside their project.
-- Keys issued before the Phase 0 fix are compromised: their 12-character prefix authenticated, and it was shown on the Keys page. Revoke and reissue each one.
+- Keys issued before the Phase 0 fix are compromised: their 12-character prefix authenticated, and it was shown on the Keys page. Delete and reissue each one.
 - `POST /api/v1/projects/{project_id}/keys` — create
 - `GET /api/v1/projects/{project_id}/keys` — list
-- `DELETE /api/v1/projects/{project_id}/keys/{key_id}` — revoke
+- `DELETE /api/v1/projects/{project_id}/keys/{key_id}` — delete the row and write an `api_key.deleted` audit entry. There is no soft revoke left; a deleted key answers `404 API key not found` where a revoked one answered `401` (see `docs/adr/002`).
 
 ## Bootstrap and Caching
 
@@ -193,6 +193,8 @@ Architecture:
 - `lib/targeting.ts` owns the operator catalogue, shared value coercion, list-token splitting/joining, draft validation, and attribute-input parsing (`key=value` lines or JSON).
 - `lib/attributeCatalog.ts` owns the preset attribute catalogue and the client-side evaluator mirror (`previewConditionMatch`/`previewRuleMatch`) used for the builder's match preview. The server stays the source of truth; the preview is advisory.
 - Reusable components: `Sidebar`, `FlagCard`, `KillSwitchButton`, `RolloutSlider`, `RuleBuilder`, `EvalPlayground`, `EnvBadge`, plus auth/layout/flag-creation components.
+- Both `RuleBuilder` and `EvalPlayground` are collapsed disclosures with `aria-expanded`, so a flag card stays scannable. The playground keeps its last decision in the closed header rather than hiding it.
+- The flag key sits next to an icon-only copy button; `lib/clipboard.ts` owns the one `copyText` helper (with an `execCommand` fallback) behind it, the project id copy, and the API key copy. It returns whether the copy happened, so a denied clipboard never renders as a success.
 - `RuleBuilder` derives its value control from the attribute's value kind (boolean toggle, enum select, numeric input, token chips for `in`/`not_in`) and renders a live match preview of the whole rule chain.
 - `RolloutSlider` is debounced: the thumb moves on a local draft, the mutation commits after `debounceMs` (default 400ms) and flushes on pointer/key release or blur, so a drag is one `PATCH`. `useProject.updateRollout` applies values optimistically under a per-flag/per-environment sequence number so a slow response cannot overwrite a newer edit.
 
@@ -216,6 +218,8 @@ Design system (Retro Black & Gold):
 - `refresh_on_evaluate=False` gives in-memory-only evaluation; `start_auto_refresh(interval, on_error)` is then how to stay current. `offline=True` implies it.
 - An explicit `refresh()` raises `AuthorizationError` because a rejected key will not fix itself; the implicit read inside `evaluate()`/`is_enabled()` absorbs it so a flag check inside someone else's request is not a 500. `raise_on_error=True` propagates reads too.
 - There is no constructor `default_value` and no per-call override; both went with `Flag.default_value`.
+- The user can be attached once instead of per call: constructor `user_id=`/`attributes=` for a client that always acts for one person, or `for_user(user_id, attributes)` for a client serving many. A per-call `user_id` replaces the bound one and per-call `attributes` **merge** onto it (`docs/adr/001`).
+- `for_user` returns a `UserScopedClient`, a `__slots__` view holding no transport, snapshot, or thread of its own; it shares the parent's, so scoping per request costs nothing. It deliberately has no `for_user`, so a scoped view cannot re-bind and carry one user's attributes to the next.
 - `backend/tests/test_sdk_parity.py` is a differential suite: it fuzzes both evaluators with identical inputs and requires identical values, reasons, and rule ids. Any change to evaluation semantics should keep it green.
 - Release: bump `pyproject.toml` version and merge. `.github/workflows/publish-sdk.yml` re-runs the SDK and parity suites and publishes to PyPI when the version is new, using Trusted Publishing (OIDC) so no token is stored in the repo.
 
@@ -241,14 +245,14 @@ Backend (`cd backend && uv run pytest`):
 SDK (`cd packages/catalyst-python-sdk && uv run --with pytest --with mmh3 pytest`):
 
 - Self-contained, no network or running services.
-- **89 tests passing.**
+- **106 tests passing.**
 
 Frontend (`cd frontend`):
 
-- `npm run test` — routing, auth-aware API client, targeting helpers, rule builder, rollout slider, docs search
+- `npm run test` — routing, auth-aware API client, targeting helpers, rule builder, rollout slider, docs search, flag card, API keys page
 - `npm run lint`
 - `npm run build`
-- **87 tests passing** across 8 files.
+- **99 tests passing** across 9 files.
 
 ## Deployment
 

@@ -22,6 +22,10 @@ const REASON_LABELS: Record<string, string> = {
 
 export function EvalPlayground({ flagKey, projectData }: EvalPlaygroundProps) {
   const saved = projectData.playground[flagKey];
+  // Collapsed like the rule builder, so a flag card stays scannable. The last
+  // decision stays readable in the disclosure, because hiding it behind the
+  // toggle would lose the one thing you evaluated it for.
+  const [open, setOpen] = useState(false);
   const [userId, setUserId] = useState(saved?.userId || 'user_123');
   const [attributeText, setAttributeText] = useState(() =>
     formatAttributeInput(saved?.attributes),
@@ -47,91 +51,121 @@ export function EvalPlayground({ flagKey, projectData }: EvalPlaygroundProps) {
     void projectData.evaluate(flagKey, userId, parseAttributeInput(attributeText));
   };
 
+  const reasonLabel = saved?.result
+    ? (REASON_LABELS[saved.result.reason] ?? saved.result.reason)
+    : null;
+
   return (
     <div className="playground-box">
-      <div className="playground-heading">
-        <span className="eyebrow">Live evaluation</span>
-        <span className="playground-hint">Test a sticky rollout without leaving the dashboard.</span>
-      </div>
-      <div className="playground-input-group">
-        <label htmlFor={`playground-${flagKey}`}>Test user ID</label>
-        <input
-          id={`playground-${flagKey}`}
-          type="text"
-          className="playground-input"
-          value={userId}
-          onChange={(event) => setUserId(event.target.value)}
-          placeholder="e.g. user_123 or alice@acme.com"
-        />
-      </div>
-      <div className="playground-attributes">
-        <div className="playground-attributes-head">
-          <label htmlFor={`playground-attributes-${flagKey}`}>Attributes</label>
-          <button
-            type="button"
-            className="text-button"
-            aria-expanded={showPresets}
-            onClick={() => setShowPresets((previous) => !previous)}
-          >
-            {showPresets ? 'Hide presets' : 'Add from presets'}
-          </button>
-        </div>
-        {showPresets && (
-          <div className="playground-presets">
-            {attributeGroups().map((group) => (
-              <div key={group.group} className="playground-preset-group">
-                <span className="playground-preset-label">{group.group}</span>
-                <div className="playground-preset-chips">
-                  {group.specs.map((spec) => (
-                    <button
-                      key={spec.key}
-                      type="button"
-                      className="rule-token-suggestion"
-                      title={spec.description}
-                      onClick={() => addPreset(spec.key)}
-                    >
-                      <span aria-hidden="true">+</span> {spec.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+      <button
+        type="button"
+        className="playground-disclosure"
+        aria-expanded={open}
+        onClick={() => setOpen((previous) => !previous)}
+      >
+        <span className="playground-disclosure-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
+        <span className="playground-disclosure-title">Live evaluation</span>
+        {saved?.result ? (
+          <span className="playground-disclosure-result">
+            <span className={`eval-badge ${saved.result.value ? 'true' : 'false'}`}>
+              {saved.result.value ? 'True' : 'False'}
+            </span>
+            <span className="playground-disclosure-reason">{reasonLabel}</span>
+          </span>
+        ) : (
+          <span className="playground-disclosure-idle">Not evaluated yet</span>
         )}
-        <textarea
-          id={`playground-attributes-${flagKey}`}
-          className="form-input playground-attributes-input"
-          rows={3}
-          value={attributeText}
-          onChange={(event) => updateText(event.target.value)}
-          placeholder={'email=alice@acme.com\nplan=pro\nversion=3'}
-          spellCheck={false}
-        />
-        <span className="form-hint">
-          Pick from the presets above, or write one <code>key=value</code> pair per line. Used by
-          targeting rules.
-        </span>
-      </div>
-      <div className="playground-actions">
-        <button
-          type="button"
-          className="playground-btn"
-          onClick={submit}
-          disabled={saved?.evaluating}
-        >
-          {saved?.evaluating ? 'Evaluating…' : 'Evaluate'}
-        </button>
-      </div>
-      {saved?.result && (
-        <div className="evaluation-result" aria-live="polite">
-          <span className={`eval-badge ${saved.result.value ? 'true' : 'false'}`}>
-            Served: {saved.result.value ? 'True' : 'False'}
-          </span>
-          <span className="evaluation-reason">
-            {REASON_LABELS[saved.result.reason] ?? saved.result.reason}
-          </span>
-          {saved.result.rule_id && (
-            <span className="evaluation-rule">rule {saved.result.rule_id.slice(0, 8)}</span>
+      </button>
+
+      {open && (
+        <div className="playground-body">
+          <p className="playground-hint">
+            Test a sticky rollout without leaving the dashboard. The same evaluator the SDK uses
+            decides this, so a match here matches in your code.
+          </p>
+
+          <div className="playground-input-group">
+            <label htmlFor={`playground-${flagKey}`}>Test user ID</label>
+            <input
+              id={`playground-${flagKey}`}
+              type="text"
+              className="playground-input"
+              value={userId}
+              onChange={(event) => setUserId(event.target.value)}
+              placeholder="e.g. user_123 or alice@acme.com"
+            />
+          </div>
+
+          <div className="playground-attributes">
+            <div className="playground-attributes-head">
+              <label htmlFor={`playground-attributes-${flagKey}`}>Attributes</label>
+              <button
+                type="button"
+                className="text-button"
+                aria-expanded={showPresets}
+                onClick={() => setShowPresets((previous) => !previous)}
+              >
+                {showPresets ? 'Hide presets' : 'Add from presets'}
+              </button>
+            </div>
+            {showPresets && (
+              <div className="playground-presets">
+                {attributeGroups().map((group) => (
+                  <div key={group.group} className="playground-preset-group">
+                    <span className="playground-preset-label">{group.group}</span>
+                    <div className="playground-preset-chips">
+                      {group.specs.map((spec) => (
+                        <button
+                          key={spec.key}
+                          type="button"
+                          className="rule-token-suggestion"
+                          title={spec.description}
+                          onClick={() => addPreset(spec.key)}
+                        >
+                          <span aria-hidden="true">+</span> {spec.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <textarea
+              id={`playground-attributes-${flagKey}`}
+              className="form-input playground-attributes-input"
+              rows={3}
+              value={attributeText}
+              onChange={(event) => updateText(event.target.value)}
+              placeholder={'email=alice@acme.com\nplan=pro\nversion=3'}
+              spellCheck={false}
+            />
+            <span className="form-hint">
+              Pick from the presets above, or write one <code>key=value</code> pair per line. Used by
+              targeting rules.
+            </span>
+          </div>
+
+          <div className="playground-actions">
+            <button
+              type="button"
+              className="playground-btn"
+              onClick={submit}
+              disabled={saved?.evaluating}
+            >
+              {saved?.evaluating ? 'Evaluating…' : 'Evaluate'}
+            </button>
+          </div>
+
+          {saved?.result && (
+            <div className="evaluation-result" aria-live="polite">
+              <span className={`eval-badge ${saved.result.value ? 'true' : 'false'}`}>
+                Served: {saved.result.value ? 'True' : 'False'}
+              </span>
+              <span className="evaluation-reason">{reasonLabel}</span>
+              {saved.result.rule_id && (
+                <span className="evaluation-rule">rule {saved.result.rule_id.slice(0, 8)}</span>
+              )}
+            </div>
           )}
         </div>
       )}

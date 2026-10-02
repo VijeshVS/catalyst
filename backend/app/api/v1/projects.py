@@ -155,7 +155,7 @@ async def list_api_keys_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all API keys for a project (active and revoked)."""
+    """List all API keys for a project."""
     project = await get_project_or_404(db, project_id, current_user.id)
 
     keys = await list_api_keys(db, project.id, active_only=False)
@@ -176,13 +176,13 @@ async def list_api_keys_endpoint(
 
 
 @router.delete("/{project_id}/keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_api_key_endpoint(
+async def delete_api_key_endpoint(
     project_id: str,
     key_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Revoke an API key by ID."""
+    """Delete an API key by ID."""
     project = await get_project_or_404(db, project_id, current_user.id)
 
     # Verify the key belongs to this project
@@ -196,8 +196,9 @@ async def revoke_api_key_endpoint(
             detail="API key not found in this project",
         )
 
-    api_key.revoked = True
-
+    # The row goes, rather than being flagged: a revoked key that cannot be
+    # removed is what made keys look undeletable. The audit entry is the
+    # durable record that the key ever existed (see docs/adr/002).
     db.add(
         AuditLog(
             org_id=project.org_id,
@@ -206,10 +207,11 @@ async def revoke_api_key_endpoint(
             actor=current_user.email,
             user_id=current_user.id,
             user_email=current_user.email,
-            action="api_key.revoked",
+            action="api_key.deleted",
             before={"name": api_key.name, "env": api_key.env},
         )
     )
+    await db.delete(api_key)
     await db.commit()
 
     return None

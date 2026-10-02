@@ -653,7 +653,7 @@ export async function fetchApiKeys(projectId: string): Promise<ApiKeyListRespons
   );
 }
 
-export async function revokeApiKey(projectId: string, keyId: string): Promise<void> {
+export async function deleteApiKey(projectId: string, keyId: string): Promise<void> {
   return jsonRequest<void>(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/keys/${encodeURIComponent(keyId)}`,
     {

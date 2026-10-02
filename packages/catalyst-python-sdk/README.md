@@ -22,6 +22,19 @@ if client.is_enabled("new-checkout", user_id="user_123",
     ...
 ```
 
+Repeating that identity on every check is tedious, so it can be attached once
+instead — on the client for a single-user script or job, or per user with
+`for_user` for a process serving many:
+
+```python
+client = CatalystClient(sdk_key=..., project_id=..., user_id="user_123",
+                        attributes={"email": "alice@acme.com"})
+client.is_enabled("new-checkout")            # identity comes from the client
+
+alice = client.for_user("alice", {"email": "alice@acme.com"})
+alice.is_enabled("new-checkout")             # identity comes from the view
+```
+
 ## Install
 
 ```bash
@@ -56,6 +69,8 @@ Only runtime dependency is [`httpx`](https://www.python-httpx.org/). Requires Py
 | `failure_backoff` | no | Seconds to stop retrying after a failed read. Default `5.0`. |
 | `offline` | no | Never touch the network. Implies `refresh_on_evaluate=False`. Useful for tests. |
 | `raise_on_error` | no | Let read failures raise out of evaluation instead of degrading. |
+| `user_id` | no | Default sticky rollout key, used when a call omits one. |
+| `attributes` | no | Default context attributes, merged with whatever a call passes. |
 
 `project_id` is worth calling out: `/api/v1/bootstrap` takes it as a query
 parameter, so the SDK cannot infer it from the key.
@@ -155,9 +170,49 @@ instead of raising.
 
 ## API
 
+### Attaching the user
+
+Two ways, depending on how many users one client serves.
+
+**On the client**, when it always acts for the same person — a script, a cron
+job, a service acting on behalf of one account:
+
+```python
+client = CatalystClient(..., user_id="user_123",
+                        attributes={"email": "alice@acme.com"})
+client.is_enabled("new-checkout")   # no identity repeated at the call site
+```
+
+**Per user**, when one long-lived client serves many — a web app:
+
+```python
+sdk = CatalystClient(sdk_key=..., project_id=...)
+
+def checkout(request):
+    alice = sdk.for_user(request.user.id, {"email": request.user.email})
+    if alice.is_enabled("new-checkout"):
+        ...
+```
+
+`for_user` returns a `UserScopedClient`: a view holding no transport, snapshot,
+or refresh thread of its own. It shares the parent's, so scoping per request
+costs nothing and all views share one snapshot and one conditional read.
+
+Rules for combining context, applied identically on both:
+
+- A per-call `user_id` replaces the bound one; a per-call `attributes` is
+  **merged** onto the bound ones, so adding one attribute never silently drops
+  the others.
+- `for_user` inherits the client's constructor defaults and merges on top.
+- `UserScopedClient` has no `for_user` of its own, so a scoped view cannot
+  re-bind and carry the previous user's attributes over to the next one.
+- Unbound clients behave exactly as before: an empty `user_id` is hashed like
+  any other value.
+
 ### `is_enabled(flag_key, user_id="", attributes=None) -> bool`
 
-The hot path: one conditional read, then a local decision.
+The hot path: one conditional read, then a local decision. `user_id` and
+`attributes` fall back to the client's.
 
 ### `evaluate(flag_key, ...) -> EvaluationResult`
 
@@ -167,7 +222,8 @@ Same evaluation, but returns the full decision:
 result = client.evaluate("new-checkout", user_id="user_123",
                          attributes={"email": "alice@acme.com"})
 result.value        # True
-result.reason       # 'RULE_MATCH' | 'PERCENTAGE_ROLLOUT' | 'KILL_SWITCH_ACTIVE'
+result.reason       # 'RULE_AND_ROLLOUT' | 'PERCENTAGE_ROLLOUT'
+                    # | 'KILL_SWITCH_ACTIVE' | 'ENABLE_ALL_USERS'
                     # | 'DEFAULT_VALUE' | 'FLAG_NOT_FOUND' | 'NO_SNAPSHOT'
 result.rule_id      # the matched rule, when a rule fired
 result.flag_version # snapshot version the decision came from
@@ -175,7 +231,8 @@ result.flag_version # snapshot version the decision came from
 
 ### `get_all(user_id="", attributes=None) -> dict[str, bool]`
 
-Evaluates the whole snapshot in one pass, for rendering a UI.
+Evaluates the whole snapshot in one pass, for rendering a UI. Also falls back to
+the client's context.
 
 ### `refresh() -> bool`
 
