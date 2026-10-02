@@ -53,7 +53,17 @@ from .transport import (
     resolve_host,
 )
 
-__version__ = "0.2.0"
+# Read from the installed distribution so there is one source of truth. This
+# used to be a hardcoded literal that drifted: the 0.2.1 wheel shipped metadata
+# saying 0.2.1 while this line still said 0.2.0, so `sdk-catalyst.__version__`
+# reported a version that was not the one installed. The fallback covers
+# running straight from a source checkout, where no distribution is installed.
+try:
+    from importlib.metadata import PackageNotFoundError, version as _dist_version
+
+    __version__ = _dist_version("sdk-catalyst")
+except PackageNotFoundError:  # pragma: no cover - source checkout only
+    __version__ = "0.0.0.dev0"
 
 __all__ = [
     "DEFAULT_HOST",
