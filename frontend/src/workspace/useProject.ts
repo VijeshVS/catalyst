@@ -76,6 +76,7 @@ const FALLBACK_STATE: FlagState = {
   enabled: true,
   percentage: 0,
   version: 1,
+  updated_at: '',
 };
 
 export function useProject(projectId: string | undefined): ProjectData {

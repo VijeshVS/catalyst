@@ -82,14 +82,13 @@ def _add_rule_audit(
 @router.get("", response_model=List[FlagResponse])
 async def list_flags(
     project_id: str = PROJECT_ID_QUERY,
-    archived: bool = False,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     project = await get_project_or_404(db, project_id, current_user.id)
     result = await db.execute(
         select(Flag)
-        .where(Flag.project_id == project.id, Flag.archived == archived)
+        .where(Flag.project_id == project.id)
         .options(selectinload(Flag.states), selectinload(Flag.rules))
         .order_by(Flag.created_at.desc())
     )
@@ -178,7 +177,6 @@ async def update_flag(
         "name": flag.name,
         "description": flag.description,
         "default_value": flag.default_value,
-        "archived": flag.archived,
     }
     if data.name is not None:
         flag.name = data.name
@@ -186,14 +184,11 @@ async def update_flag(
         flag.description = data.description
     if data.default_value is not None:
         flag.default_value = data.default_value
-    if data.archived is not None:
-        flag.archived = data.archived
 
     after = {
         "name": flag.name,
         "description": flag.description,
         "default_value": flag.default_value,
-        "archived": flag.archived,
     }
     if after == before:
         return await _get_flag_in_project(db, project.id, flag_key)

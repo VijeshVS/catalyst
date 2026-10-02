@@ -100,7 +100,7 @@ model Environment { id String @id @default(cuid())  projectId String  name Strin
 
 model Flag { id String @id @default(cuid())  projectId String  key String
   name String  description String?  defaultValue Boolean @default(false)
-  archived Boolean @default(false)  createdAt DateTime @default(now())
+  createdAt DateTime @default(now())  updatedAt DateTime @default(now())
   project Project @relation(fields:[projectId], references:[id])
   states FlagEnvState[]  rules TargetingRule[]
   @@unique([projectId, key]) }
@@ -150,9 +150,9 @@ Auth:
 - SDK: header `x-sdk-key: cp_<env>_<random32>`. SHA-256 the presented key and compare hashes only (the stored `prefix` is a non-secret label and never authenticates) → scope to `projectId+env`. Read-only: only `bootstrap/evaluate/playground-eval`. No write.
 
 Flags:
-- `GET /projects/:pid/flags?search=&archived=false&env=prod` → `[{key,name,enabled,percentage,prodSummary}]`
+- `GET /projects/:pid/flags?search=&env=prod` → `[{key,name,enabled,percentage,prodSummary}]`
 - `POST /projects/:pid/flags {key,name,description,defaultValue}` → 409 on dup key, 400 on bad regex. Creates 3 `FlagEnvState` rows (one per env, `enabled=true, percentage=0`) + audit.
-- `PATCH /flags/:id {name,description,defaultValue}` `POST /flags/:id/archive` `POST /flags/:id/unarchive`
+- `PATCH /flags/:id {name,description,defaultValue}` → `flag.updated_at++`, audit.
 - `PUT /flags/:id/state/:env {enabled,percentage}` → validate 0-100 int → `version++`, `env.version++`, audit.
 
 Rules:
@@ -182,8 +182,7 @@ Errors: `{error:{code,message,details}}` codes `VALIDATION|NOT_FOUND|CONFLICT|UN
 
 Order (PRD v2 §5):
 ```
-1. if archived → defaultValue, reason=default
-2. if !enabled (kill OFF) → defaultValue, reason=disabled
+1. if !enabled (kill OFF) → defaultValue, reason=disabled
 3. rules by priority asc → first where ALL conditions true → serve, reason=rule:<id>
 4. rollout: if userId present and hash%100 < percentage → true, reason=rollout
    else if userId missing → skip rollout → defaultValue
@@ -267,7 +266,7 @@ Both share `eval.vectors.json` tests.
 
 ## 11. Testing + Perf
 
-- `vitest` (api + js-sdk) + `pytest`: hash stickiness (same user 1000 evals same), distribution ±2% at 10k synthetic userIds, all operators + missing-field skips, kill precedence, reorder priority, archived excluded, audit on every mutation, tenant isolation (env A change never appears in B bootstrap), bootstrap `304` when version unchanged.
+- `vitest` (api + js-sdk) + `pytest`: hash stickiness (same user 1000 evals same), distribution ±2% at 10k synthetic userIds, all operators + missing-field skips, kill precedence, reorder priority, audit on every mutation, tenant isolation (env A change never appears in B bootstrap), bootstrap `304` when version unchanged.
 - k6 smoke (optional Wk4): 100 RPS evaluate p95 <150ms local.
 - Manual demo gate: toggle prod OFF → reload both demo apps → both show new value with correct `reason`.
 

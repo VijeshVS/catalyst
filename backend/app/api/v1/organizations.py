@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.v1.deps import get_organization_or_404, get_current_user
 from app.core.db import get_db
-from app.models.models import AuditLog, Organization, Project, User
+from app.models.models import AuditLog, Flag, Organization, Project, User
 from app.schemas.schemas import (
     EnvironmentResponse,
     OrganizationCreate,
@@ -24,15 +24,22 @@ router = APIRouter(prefix="/organizations", tags=["Organizations"])
 def _organizations_with_projects(owner_id: str):
     return select(Organization).where(Organization.owner_id == owner_id).options(
         selectinload(Organization.projects).selectinload(Project.environments),
-        selectinload(Organization.projects).selectinload(Project.flags),
+        selectinload(Organization.projects).selectinload(Project.flags).selectinload(Flag.states),
     )
 
 
 def _serialize_project(project: Project) -> ProjectResponse:
     """Build a project response with deterministic display metadata."""
     environments = sort_environments(project.environments)
+    # A project's last-updated time is the newest change to any of its flags:
+    # the definition or any per-environment state, so moving a rollout slider
+    # moves it too.
     latest_flag = max(
-        (flag.created_at for flag in project.flags),
+        (
+            timestamp
+            for flag in project.flags
+            for timestamp in [flag.updated_at, *(state.updated_at for state in flag.states)]
+        ),
         default=project.created_at,
     )
     return ProjectResponse(
@@ -43,7 +50,7 @@ def _serialize_project(project: Project) -> ProjectResponse:
         environments=[
             EnvironmentResponse.model_validate(environment) for environment in environments
         ],
-        flag_count=sum(1 for flag in project.flags if not flag.archived),
+        flag_count=len(project.flags),
         updated_at=latest_flag,
     )
 
@@ -158,7 +165,7 @@ async def create_project(
         .where(Project.id == project.id)
         .options(
             selectinload(Project.environments),
-            selectinload(Project.flags),
+            selectinload(Project.flags).selectinload(Flag.states),
         )
     )
     return _serialize_project(result.scalar_one())

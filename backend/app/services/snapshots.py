@@ -119,7 +119,7 @@ def _flag_entry(flag: Flag, env: str) -> Dict[str, Any]:
 async def _build_from_postgres(db: AsyncSession, project_id: str, env: str) -> Dict[str, Any]:
     stmt = (
         select(Flag)
-        .where(Flag.project_id == project_id, Flag.archived == False)  # noqa: E712
+        .where(Flag.project_id == project_id)
         .options(selectinload(Flag.states), selectinload(Flag.rules))
     )
     result = await db.execute(stmt)

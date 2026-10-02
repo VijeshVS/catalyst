@@ -27,8 +27,8 @@ const FLAG: Flag = {
   key: 'ai-assistant',
   name: 'AI Assistant',
   default_value: false,
-  archived: false,
   created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-02T00:00:00Z',
   states: [],
   rules: [],
 };
@@ -39,6 +39,8 @@ const INTERNAL_RULE: TargetingRule = {
   priority: 0,
   conditions: [{ attr: 'email', op: 'ends_with', value: '@acme.com' }],
   serve: true,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
 };
 
 const BETA_RULE: TargetingRule = {
@@ -50,6 +52,8 @@ const BETA_RULE: TargetingRule = {
     { attr: 'version', op: 'greater_than_or_equal', value: 3 },
   ],
   serve: false,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
 };
 
 function projectDataWith(overrides: Partial<ProjectData> = {}): ProjectData {
