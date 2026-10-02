@@ -32,12 +32,10 @@ yourself with :meth:`refresh` or :meth:`start_auto_refresh`.
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import threading
 import time
-from typing import Any, Callable, Dict, List, Mapping, Optional, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from .evaluator import (
     REASON_FLAG_NOT_FOUND,
@@ -61,17 +59,6 @@ logger = logging.getLogger("catalyst_sdk")
 Attributes = Mapping[str, Any]
 
 
-def _default_cache_path(sdk_key: str, project_id: str, env: str) -> str:
-    """A stable per-project cache filename keyed by a hash of the SDK key."""
-    import hashlib
-
-    digest = hashlib.sha256(sdk_key.encode("utf-8")).hexdigest()[:16]
-    base = os.environ.get("CATALYST_CACHE_DIR") or os.path.join(
-        os.path.expanduser("~"), ".cache", "catalyst"
-    )
-    return os.path.join(base, f"{project_id}_{env}_{digest}.json")
-
-
 class CatalystClient:
     """
     Feature flag client that reads its snapshot as it evaluates.
@@ -87,21 +74,16 @@ class CatalystClient:
         env: Environment whose snapshot to load. Defaults to ``dev``, matching
             ``/api/v1/bootstrap`` and ``/api/v1/evaluate``.
         timeout: Per-request HTTP timeout in seconds.
-        default_value: Value returned for an unknown flag key or when no
-            snapshot has loaded yet. Fails safe to ``False``.
         refresh_on_evaluate: Read the snapshot as part of each evaluation. On
             by default; set it to ``False`` to evaluate from memory only and
             drive freshness with :meth:`refresh` or :meth:`start_auto_refresh`.
         failure_backoff: Seconds to stop retrying after a failed read, so an
             unreachable API does not add its timeout to every single check.
-        offline: Never touch the network; load only from the disk cache. Implies
-            ``refresh_on_evaluate=False``. Useful for tests and cold starts.
-        cache_path: Where to persist the last good snapshot. ``None`` or ``True``
-            uses a default location under ``~/.cache/catalyst`` (override with
-            ``CATALYST_CACHE_DIR``), and ``False`` disables disk caching.
+        offline: Never touch the network and never read anything from disk.
+            Implies ``refresh_on_evaluate=False``. Useful for tests.
         raise_on_error: If ``True``, read failures propagate out of evaluation
-            and :meth:`refresh` re-raises transport errors, instead of degrading
-            to the last good snapshot.
+            and :meth:`refresh` re-raises transport errors, instead of
+            resolving to ``False``.
 
     Raises:
         ConfigurationError: on missing or unusable settings.
@@ -114,11 +96,9 @@ class CatalystClient:
         host: Optional[str] = None,
         env: str = "dev",
         timeout: float = 5.0,
-        default_value: bool = False,
         refresh_on_evaluate: bool = True,
         failure_backoff: float = 5.0,
         offline: bool = False,
-        cache_path: Optional[Union[str, bool]] = None,
         raise_on_error: bool = False,
         http_client: Optional[Any] = None,
     ) -> None:
@@ -131,19 +111,11 @@ class CatalystClient:
         self.project_id = project_id
         self.host = resolve_host(host)
         self.env = env
-        self.default_value = bool(default_value)
         self.raise_on_error = bool(raise_on_error)
         # `offline` is a hard promise that no socket is opened, so it overrides
         # the per-evaluation read rather than competing with it.
         self.refresh_on_evaluate = bool(refresh_on_evaluate) and not offline
         self.failure_backoff = max(0.0, float(failure_backoff))
-
-        if cache_path is False:
-            self.cache_path: Optional[str] = None
-        elif cache_path is None or cache_path is True:
-            self.cache_path = _default_cache_path(sdk_key, project_id, env)
-        else:
-            self.cache_path = str(cache_path)
 
         self._transport = BootstrapTransport(
             host=self.host,
@@ -157,6 +129,9 @@ class CatalystClient:
         # A single attribute assignment makes the snapshot swap atomic for
         # readers, so evaluation never sees a half-updated view.
         self._snapshot: Optional[Snapshot] = None
+        # Set when a read fails and cleared by the next successful one. While it
+        # is set the snapshot is not served, so evaluation fails closed.
+        self._read_failed = False
         self._lock = threading.RLock()
         # Held only for the duration of a read, so concurrent evaluations
         # collapse into one request instead of stampeding the API.
@@ -171,12 +146,6 @@ class CatalystClient:
         self._not_modified_count = 0
         self._next_attempt_at = 0.0
 
-        if offline:
-            if not self._load_disk_cache():
-                logger.warning(
-                    "offline start found no cached snapshot; falling back to default_value=%s",
-                    self.default_value,
-                )
         # Nothing is fetched here on purpose. A snapshot is read when it is
         # needed, so constructing a client is free and cannot fail on a cold or
         # unreachable API.
@@ -196,8 +165,8 @@ class CatalystClient:
 
     @property
     def is_ready(self) -> bool:
-        """True once a snapshot is loaded, whether from a read or the disk cache."""
-        return self._snapshot is not None
+        """True once a snapshot is loaded and the last read succeeded."""
+        return self._snapshot is not None and not self._read_failed
 
     @property
     def last_error(self) -> Optional[str]:
@@ -208,6 +177,7 @@ class CatalystClient:
         """Lightweight counters, handy for health endpoints in a demo app."""
         return {
             "ready": self.is_ready,
+            "read_failed": self._read_failed,
             "env": self.env,
             "host": self.host,
             "version": self.version,
@@ -236,8 +206,11 @@ class CatalystClient:
         Refreshes the snapshot, coalescing concurrent readers into one request.
 
         Runs before every evaluation. Failure is absorbed here on purpose: an
-        evaluation sits inside someone else's request, so it degrades to the last
-        good snapshot rather than turning a flag check into a 500. After a
+        evaluation sits inside someone else's request, so it must not turn a
+        flag check into a 500. The SDK **fails closed**: a read that fails
+        resolves to `False` rather than to a cached snapshot, because serving
+        stale targeting decisions is worse than not serving the feature. A
+        `304 Not Modified` is a successful read and keeps serving. After a
         failure the next read is held off for `failure_backoff` seconds, so a
         dead API costs one timeout per window instead of one per check.
         """
@@ -264,15 +237,9 @@ class CatalystClient:
             else:
                 failure = None
 
-            if self._snapshot is None:
-                # Cold start with nothing to serve: the last known good snapshot
-                # on disk is the last resort before the configured default.
-                self._load_disk_cache()
-
             if failure is not None:
                 logger.warning(
-                    "snapshot read failed; serving v%s (next attempt in %.1fs): %s",
-                    self.version,
+                    "snapshot read failed; serving false (next attempt in %.1fs): %s",
                     self.failure_backoff,
                     failure,
                 )
@@ -282,31 +249,29 @@ class CatalystClient:
         flag_key: str,
         user_id: str = "",
         attributes: Optional[Attributes] = None,
-        default_value: Optional[bool] = None,
     ) -> EvaluationResult:
         """
         Evaluates one flag and returns the full result including the reason.
 
         Reads the snapshot first (see :attr:`refresh_on_evaluate`), then decides
-        locally. Unknown keys and the no-snapshot case resolve to the configured
-        safe default rather than raising, so a bad key can never take a request
-        down.
+        locally. An unknown key, a snapshot that has never loaded, and a failed
+        read all resolve to `False`, so neither a bad key nor an unreachable
+        API can take a request down or turn a feature on by accident.
         """
         self._read_snapshot()
-        return self._evaluate_cached(flag_key, user_id, attributes, default_value)
+        return self._evaluate_cached(flag_key, user_id, attributes)
 
     def _evaluate_cached(
         self,
         flag_key: str,
         user_id: str = "",
         attributes: Optional[Attributes] = None,
-        default_value: Optional[bool] = None,
     ) -> EvaluationResult:
         """The decision itself: pure, local, and safe to call in a loop."""
         snapshot = self._snapshot
-        if snapshot is None:
+        if snapshot is None or self._read_failed:
             return EvaluationResult(
-                value=self._fallback(default_value),
+                value=False,
                 reason=REASON_NO_SNAPSHOT,
                 flag_key=flag_key,
             )
@@ -314,15 +279,15 @@ class CatalystClient:
         flag = snapshot.get(flag_key)
         if flag is None:
             return EvaluationResult(
-                value=self._fallback(default_value),
+                value=False,
                 reason=REASON_FLAG_NOT_FOUND,
                 flag_key=flag_key,
             )
 
         return evaluate_flag(
             flag_key=flag.key,
-            default_value=flag.default_value,
             enabled=flag.enabled,
+            enable_all=flag.enable_all,
             percentage=flag.percentage,
             rules=flag.rules,
             user_id=user_id or "",
@@ -335,7 +300,6 @@ class CatalystClient:
         flag_key: str,
         user_id: str = "",
         attributes: Optional[Attributes] = None,
-        default_value: Optional[bool] = None,
     ) -> bool:
         """
         The hot path: one conditional read, then a local decision.
@@ -345,9 +309,8 @@ class CatalystClient:
             user_id: Sticky rollout key. Required for percentage rollouts to
                 be meaningful; an empty string is hashed like any other value.
             attributes: Context attributes matched against targeting rules.
-            default_value: Overrides the client default for this call only.
         """
-        return self.evaluate(flag_key, user_id, attributes, default_value).value
+        return self.evaluate(flag_key, user_id, attributes).value
 
     def get_all(
         self,
@@ -364,9 +327,6 @@ class CatalystClient:
             key: self._evaluate_cached(key, user_id, attributes).value
             for key in self.flag_keys()
         }
-
-    def _fallback(self, override: Optional[bool]) -> bool:
-        return self.default_value if override is None else bool(override)
 
     # ------------------------------------------------------------------
     # Refreshing
@@ -399,6 +359,8 @@ class CatalystClient:
             self._last_error = "authorization failed"
             self._last_exception = None
             self._defer_next_attempt()
+            # A rejected key will not fix itself, so nothing is served.
+            self._read_failed = True
             raise
         except BootstrapError as exc:
             self._last_error = str(exc)
@@ -406,9 +368,13 @@ class CatalystClient:
             # it through `on_error` while the request path stays unaffected.
             self._last_exception = exc
             self._defer_next_attempt()
+            # Fail closed: the snapshot may still describe the flag correctly,
+            # but the API can no longer confirm it, so it stops being served
+            # until a read succeeds.
+            self._read_failed = True
             if self.raise_on_error:
                 raise
-            logger.warning("bootstrap refresh failed; keeping snapshot v%s", self.version)
+            logger.warning("bootstrap refresh failed; serving false: %s", exc)
             return False
 
         with self._lock:
@@ -419,6 +385,8 @@ class CatalystClient:
                 self._not_modified_count += 1
                 self._last_error = None
                 self._last_exception = None
+                # A 304 is a successful read, so the snapshot serves again.
+                self._read_failed = False
                 # Keep serving the existing snapshot; only note the check time.
                 if self._snapshot is not None and result.etag:
                     self._snapshot = Snapshot(
@@ -436,7 +404,7 @@ class CatalystClient:
                 self._last_refresh_ok = time.time()
                 self._last_error = None
                 self._last_exception = None
-                self._write_disk_cache(result.snapshot)
+                self._read_failed = False
                 return True
 
         return False
@@ -498,52 +466,6 @@ class CatalystClient:
         if thread is not None and thread.is_alive():
             thread.join(timeout=timeout)
         self._refresh_thread = None
-
-    # ------------------------------------------------------------------
-    # Disk cache
-    # ------------------------------------------------------------------
-    def _write_disk_cache(self, snapshot: Snapshot) -> None:
-        if not self.cache_path:
-            return
-        try:
-            os.makedirs(os.path.dirname(self.cache_path) or ".", exist_ok=True)
-            # Write to a temp file then rename so a crash cannot leave a
-            # truncated snapshot that would fail to parse on next boot.
-            tmp = f"{self.cache_path}.tmp"
-            with open(tmp, "w", encoding="utf-8") as handle:
-                json.dump(snapshot.to_dict(), handle)
-            os.replace(tmp, self.cache_path)
-        except OSError as exc:
-            logger.warning("could not write snapshot cache %s: %s", self.cache_path, exc)
-
-    def _load_disk_cache(self) -> bool:
-        if not self.cache_path or not os.path.exists(self.cache_path):
-            return False
-        try:
-            with open(self.cache_path, "r", encoding="utf-8") as handle:
-                raw = json.load(handle)
-            snapshot = Snapshot.from_dict(raw)
-        except (OSError, ValueError) as exc:
-            logger.warning("ignoring unreadable snapshot cache: %s", exc)
-            return False
-
-        if snapshot.env and snapshot.env != self.env:
-            return False
-
-        with self._lock:
-            self._snapshot = snapshot
-        logger.info("loaded snapshot v%s for %s from cache", snapshot.version, self.env)
-        return True
-
-    def clear_cache(self) -> bool:
-        """Deletes the on-disk snapshot. Returns True if a file was removed."""
-        if not self.cache_path or not os.path.exists(self.cache_path):
-            return False
-        try:
-            os.remove(self.cache_path)
-            return True
-        except OSError:
-            return False
 
     # ------------------------------------------------------------------
     # Lifecycle

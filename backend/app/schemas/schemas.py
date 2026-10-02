@@ -86,7 +86,10 @@ class EvaluateRequest(BaseModel):
 class EvaluateResponse(BaseModel):
     flag_key: str
     value: bool
-    reason: str  # KILL_SWITCH_ACTIVE, RULE_MATCH, PERCENTAGE_ROLLOUT, DEFAULT_VALUE, FLAG_NOT_FOUND
+    # One of KILL_SWITCH_ACTIVE, ENABLE_ALL_USERS, RULE_AND_ROLLOUT,
+    # RULE_OUTSIDE_ROLLOUT, PERCENTAGE_ROLLOUT, PERCENTAGE_OUTSIDE_ROLLOUT,
+    # DEFAULT_VALUE (rules filtered the user out), FLAG_NOT_FOUND.
+    reason: str
     rule_id: Optional[str] = None
 
 
@@ -171,13 +174,15 @@ class FlagStateSchema(BaseModel):
     id: Optional[str] = None
     env: str
     enabled: bool = True
-    percentage: int = Field(default=0, ge=0, le=100)
+    enable_all: bool = False
+    percentage: int = Field(default=100, ge=0, le=100)
     version: int = 1
     updated_at: datetime
 
 
 class FlagStateUpdate(BaseModel):
     enabled: Optional[bool] = None
+    enable_all: Optional[bool] = None
     percentage: Optional[int] = Field(default=None, ge=0, le=100)
 
 
@@ -223,6 +228,11 @@ class RuleCondition(BaseModel):
 
 
 class RuleCreate(BaseModel):
+    name: str = Field(
+        default="",
+        max_length=128,
+        description="Operator-facing label, e.g. 'Internal beta'",
+    )
     conditions: List[RuleCondition] = Field(
         ...,
         min_length=1,
@@ -238,6 +248,7 @@ class RuleCreate(BaseModel):
 
 
 class RuleUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=128)
     conditions: Optional[List[RuleCondition]] = Field(default=None, min_length=1, max_length=25)
     serve: Optional[bool] = None
     priority: Optional[int] = Field(default=None, ge=0)
@@ -256,6 +267,7 @@ class TargetingRuleSchema(BaseModel):
 
     id: Optional[str] = None
     env: str
+    name: str = ""
     priority: int = 0
     conditions: List[RuleCondition] = Field(
         default_factory=list,
@@ -276,13 +288,11 @@ class FlagCreate(BaseModel):
     key: str = Field(..., pattern=r"^[a-z0-9-_.]+$")
     name: str
     description: Optional[str] = None
-    default_value: bool = False
 
 
 class FlagUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    default_value: Optional[bool] = None
 
 
 class FlagResponse(BaseModel):
@@ -293,7 +303,6 @@ class FlagResponse(BaseModel):
     key: str
     name: str
     description: Optional[str] = None
-    default_value: bool
     created_at: datetime
     updated_at: datetime
     states: List[FlagStateSchema] = Field(default_factory=list)

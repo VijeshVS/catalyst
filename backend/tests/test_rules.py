@@ -24,7 +24,7 @@ async def create_project(client, org_id: str, name: str) -> dict:
 async def create_flag(client, project_id: str, key: str = "ai-assistant") -> dict:
     res = await client.post(
         f"{API}/flags?project_id={project_id}",
-        json={"key": key, "name": "AI Assistant", "default_value": False},
+        json={"key": key, "name": "AI Assistant"},
     )
     assert res.status_code == 201, res.text
     return res.json()
@@ -423,30 +423,40 @@ async def test_rules_drive_evaluation_by_priority(client):
         assert res.status_code == 200, res.text
         return res.json()
 
-    internal = await evaluate({"email": "dev@acme.com", "beta_cohort": True})
-    assert internal["value"] is True
-    assert internal["reason"] == "RULE_MATCH"
-
-    beta_opted_out = await evaluate({"email": "dev@other.com", "beta_cohort": True})
-    assert beta_opted_out["value"] is False
-    assert beta_opted_out["reason"] == "RULE_MATCH"
-
-    unsegmented = await evaluate({"email": "dev@other.com"})
-    assert unsegmented["value"] is False
-    assert unsegmented["reason"] == "DEFAULT_VALUE"
-
-    # The rules are evaluated before the percentage rollout.
+    # The rollout is at full so a matched user's decision is the rule's own,
+    # not a split of the percentage.
     rollout = await client.patch(
         f"{API}/flags/{flag['key']}/environments/dev?project_id={project['id']}",
         json={"percentage": 100},
     )
     assert rollout.status_code == 200
-    assert (await evaluate({"email": "dev@other.com"}))["reason"] == "PERCENTAGE_ROLLOUT"
 
-    # ... but the kill switch still wins over every rule.
+    internal = await evaluate({"email": "dev@acme.com", "beta_cohort": True})
+    assert internal["value"] is True
+    assert internal["reason"] == "RULE_AND_ROLLOUT"
+
+    beta_opted_out = await evaluate({"email": "dev@other.com", "beta_cohort": True})
+    assert beta_opted_out["value"] is False
+    assert beta_opted_out["reason"] == "RULE_AND_ROLLOUT"
+
+    # Rules exist and filtered this user out, so the percentage never applies.
+    unsegmented = await evaluate({"email": "dev@other.com"})
+    assert unsegmented["value"] is False
+    assert unsegmented["reason"] == "DEFAULT_VALUE"
+
+    # A percentage splits the matched group instead of overriding the rules.
     await client.patch(
         f"{API}/flags/{flag['key']}/environments/dev?project_id={project['id']}",
-        json={"enabled": False, "percentage": 0},
+        json={"percentage": 0},
+    )
+    outside = await evaluate({"email": "dev@acme.com", "beta_cohort": True})
+    assert outside["value"] is False, "a matched user outside the rollout gets the opposite value"
+    assert outside["reason"] == "RULE_OUTSIDE_ROLLOUT"
+
+    # The kill switch still wins over every rule.
+    await client.patch(
+        f"{API}/flags/{flag['key']}/environments/dev?project_id={project['id']}",
+        json={"enabled": False},
     )
     killed = await evaluate({"email": "dev@acme.com"})
     assert killed["value"] is False

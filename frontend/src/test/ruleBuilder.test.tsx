@@ -26,7 +26,6 @@ const FLAG: Flag = {
   project_id: 'project-1',
   key: 'ai-assistant',
   name: 'AI Assistant',
-  default_value: false,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-02T00:00:00Z',
   states: [],
@@ -36,6 +35,7 @@ const FLAG: Flag = {
 const INTERNAL_RULE: TargetingRule = {
   id: 'rule-internal',
   env: 'dev',
+  name: 'Internal users',
   priority: 0,
   conditions: [{ attr: 'email', op: 'ends_with', value: '@acme.com' }],
   serve: true,
@@ -46,6 +46,7 @@ const INTERNAL_RULE: TargetingRule = {
 const BETA_RULE: TargetingRule = {
   id: 'rule-beta',
   env: 'dev',
+  name: 'Beta cohort',
   priority: 1,
   conditions: [
     { attr: 'plan', op: 'in', value: ['pro', 'enterprise'] },
@@ -100,6 +101,7 @@ describe('targeting value helpers', () => {
   it('splits list operators into a coerced array', () => {
     expect(
       toRuleConditions({
+        name: '',
         serve: true,
         conditions: [{ attr: 'plan', op: 'in', value: 'pro, enterprise, 3' }],
       }),
@@ -110,26 +112,27 @@ describe('targeting value helpers', () => {
     expect(operatorNeedsValue('exists')).toBe(false);
     expect(operatorNeedsValue('not_exists')).toBe(false);
     expect(
-      toRuleConditions({ serve: false, conditions: [{ attr: 'trial', op: 'exists', value: '' }] }),
+      toRuleConditions({ name: '', serve: false, conditions: [{ attr: 'trial', op: 'exists', value: '' }] }),
     ).toEqual([{ attr: 'trial', op: 'exists' }]);
   });
 
   it('rejects drafts without an attribute or a required value', () => {
-    expect(validateRuleDraft({ serve: true, conditions: [] })).toMatch(/at least one condition/i);
+    expect(validateRuleDraft({ name: '', serve: true, conditions: [] })).toMatch(/at least one condition/i);
     expect(
-      validateRuleDraft({ serve: true, conditions: [{ attr: ' ', op: 'equals', value: 'x' }] }),
+      validateRuleDraft({ name: '', serve: true, conditions: [{ attr: ' ', op: 'equals', value: 'x' }] }),
     ).toMatch(/attribute/i);
     expect(
-      validateRuleDraft({ serve: true, conditions: [{ attr: 'email', op: 'ends_with', value: '' }] }),
+      validateRuleDraft({ name: '', serve: true, conditions: [{ attr: 'email', op: 'ends_with', value: '' }] }),
     ).toMatch(/value/i);
     // A presence operator legitimately has no value.
     expect(
-      validateRuleDraft({ serve: true, conditions: [{ attr: 'trial', op: 'exists', value: '' }] }),
+      validateRuleDraft({ name: '', serve: true, conditions: [{ attr: 'trial', op: 'exists', value: '' }] }),
     ).toBeNull();
   });
 
   it('round-trips a saved rule into an editable draft', () => {
     expect(draftFromRule(BETA_RULE)).toEqual({
+      name: 'Beta cohort',
       serve: false,
       conditions: [
         { attr: 'plan', op: 'in', value: 'pro, enterprise' },
@@ -227,24 +230,26 @@ describe('RuleBuilder', () => {
     openBuilder(projectData);
 
     expect(screen.getAllByText('matches').length).toBeGreaterThan(0);
-    expect(screen.getByText(/first match wins: rule #1 serves true/i)).toBeInTheDocument();
+    expect(screen.getByText(/Internal users matched, so this user is in the audience/i)).toBeInTheDocument();
+    expect(screen.getByText(/Inside the rollout it serves true/i)).toBeInTheDocument();
   });
 
-  it('falls back to rollout when nothing matches the context', () => {
+  it('says a user who matches no rule is filtered out of the audience', () => {
     const projectData = projectDataWith({
       rulesFor: () => [INTERNAL_RULE],
       playground: { 'ai-assistant': { userId: 'u1', attributes: { country: 'IN' } } },
     });
     openBuilder(projectData);
-    expect(screen.getByText(/nothing matches, so the percentage rollout/i)).toBeInTheDocument();
+    expect(screen.getByText(/No rule matches, so this user is filtered out/i)).toBeInTheDocument();
+    expect(screen.getByText(/gets false whatever the rollout is/i)).toBeInTheDocument();
   });
 
-  it('lists existing rules in priority order with their served value', () => {
-    const projectData = projectDataWith({ rulesFor: () => [INTERNAL_RULE, BETA_RULE] });
+  it('uses the rule label when there is one and falls back to the number', () => {
+    const projectData = projectDataWith({ rulesFor: () => [INTERNAL_RULE, { ...BETA_RULE, name: '' }] });
     openBuilder(projectData);
 
     expect(screen.getByText('2 rules')).toBeInTheDocument();
-    expect(screen.getByText('Rule #1')).toBeInTheDocument();
+    expect(screen.getByText('Internal users')).toBeInTheDocument();
     expect(screen.getByText('Rule #2')).toBeInTheDocument();
     expect(screen.getByText('serve true')).toBeInTheDocument();
     expect(screen.getByText('serve false')).toBeInTheDocument();
@@ -278,6 +283,7 @@ describe('RuleBuilder', () => {
 
     await waitFor(() => {
       expect(createRule).toHaveBeenCalledWith(FLAG, {
+        name: '',
         conditions: [{ attr: 'country', op: 'in', value: ['IN', 'US'] }],
         serve: true,
       });
@@ -306,6 +312,7 @@ describe('RuleBuilder', () => {
 
     await waitFor(() => {
       expect(createRule).toHaveBeenCalledWith(FLAG, {
+        name: '',
         conditions: [{ attr: 'is_beta', op: 'equals', value: false }],
         serve: true,
       });
@@ -385,6 +392,7 @@ describe('RuleBuilder', () => {
 
     await waitFor(() => {
       expect(updateRule).toHaveBeenCalledWith(FLAG, INTERNAL_RULE, {
+        name: 'Internal users',
         conditions: [{ attr: 'email', op: 'ends_with', value: '@acme.com' }],
         serve: false,
       });

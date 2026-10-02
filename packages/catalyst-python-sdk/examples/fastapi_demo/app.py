@@ -6,8 +6,8 @@ Shows the three things an application actually needs from a feature flag SDK:
 1. A client built once at process startup. Construction does no I/O.
 2. A check that reads the current snapshot, so a dashboard toggle lands without
    a restart.
-3. A warm snapshot check at boot, so the service never serves a default it did
-   not have to.
+3. A warm snapshot check at boot, so an unreachable API is caught at startup
+   rather than on a user's request.
 
 Run against the hosted API (the default), or point it at your own:
 
@@ -63,9 +63,6 @@ def build_client() -> CatalystClient:
             env=os.getenv("CATALYST_ENV", "prod"),
             # Reads happen per check unless the demo is asked to poll instead.
             refresh_on_evaluate=not BACKGROUND_REFRESH,
-            # The last good snapshot is persisted so a cold start can survive a
-            # momentarily unreachable API.
-            cache_path=None if os.getenv("CATALYST_NO_CACHE") else True,
         )
     except ConfigurationError as exc:
         raise SystemExit(
@@ -87,7 +84,7 @@ async def lifespan(app: FastAPI):
     # Fail loudly here rather than discovering a bad key on a user's request.
     if not client.refresh():
         logger.warning(
-            "could not read the snapshot at boot; flags will serve their default (error: %s)",
+            "could not read the snapshot at boot; every flag will serve false (error: %s)",
             client.last_error,
         )
     logger.info(
@@ -207,15 +204,16 @@ def health() -> Dict[str, Any]:
     """
     Distinguishes "API is down" from "API is reachable and we are current".
 
-    ``ok`` stays true while a stale snapshot is being served, because the
-    service is still returning correct-but-older decisions.
+    The SDK fails closed, so a down API means every flag serves false. That is
+    safe but it is also a feature going dark, so it is reported as not ``ok``.
     """
     sdk = _require_client()
     stats = sdk.stats
     return {
-        "ok": True,
+        "ok": sdk.is_ready,
         "degraded": not sdk.is_ready,
-        "snapshot_ready": sdk.is_ready,
+        "snapshot_ready": sdk.snapshot is not None,
+        "last_read_failed": stats["read_failed"],
         "snapshot_version": stats["version"],
         "last_successful_refresh": (
             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stats["last_refresh_ok"]))

@@ -1,6 +1,6 @@
 # Catalyst — Roadmap 2.0
 
-**Status:** Phase 0 done. Phases 1 and 2 are not implemented yet.
+**Status:** all three phases implemented. Applying `003_enable_all.sql` to Neon is still outstanding.
 
 The original roadmap is finished. This one has three parts: fix an API key
 security problem, add timestamps, and **rework how flags are evaluated** so the
@@ -15,7 +15,7 @@ has to be right before anything is built on top of it.
 |---|---|---|
 | [0](#phase-0--api-key-security-fix) | API key security fix | **Done** |
 | [1](#phase-1--updated_at-timestamps) | `updated_at` timestamps | **Done** |
-| [2](#phase-2--rework-how-flags-are-evaluated) | Rework evaluation | **Active** |
+| [2](#phase-2--rework-how-flags-are-evaluated) | Rework evaluation | **Done** |
 
 ---
 
@@ -210,9 +210,7 @@ removed; `FlagUpdate` and the endpoint stay.
 
 # Phase 2 — Rework how flags are evaluated
 
-**Status: Active. The most important phase in this document.** It changes what
-real users receive from the product, and the SDK has a copy of the same logic that
-must be changed in lockstep.
+**Status: Done.**
 
 ## What we want
 
@@ -281,26 +279,41 @@ Four things are wrong with this against the table above:
 
 ### 2-A · Add the "enable to all users" switch 🗄️
 
-- [ ] Add `enable_all: Boolean` to `FlagEnvState` (`models.py:169-196`).
-- [ ] **Default it to `false`** so no existing flag changes behaviour the moment
+- [x] Add `enable_all: Boolean` to `FlagEnvState` (`models.py:169-196`).
+- [x] **Default it to `false`** so no existing flag changes behaviour the moment
       this deploys.
-- [ ] Add it to the bootstrap snapshot payload so the SDK can evaluate it locally
+- [x] Add it to the bootstrap snapshot payload so the SDK can evaluate it locally
       without a server round trip.
-- [ ] Migration `003_enable_all.sql`.
+- [x] Migration `003_enable_all.sql`.
 
 ### 2-B · Change the percentage to a real share 🗄️
 
-- [ ] `FlagEnvState.percentage` becomes the share of eligible users who receive
+- [x] `FlagEnvState.percentage` becomes the share of eligible users who receive
       the feature. **0% serves nobody.** Remove the `if percentage > 0` guard.
-- [ ] Change the column default from `0` to `100`.
-- [ ] The migration must **explicitly set the percentage on every existing row**
-      rather than relying on the default, so that no flag changes behaviour:
-      - rows where `default_value=False` → set `percentage=0` (preserves today's
-        behaviour: off)
-      - rows where `default_value=True` → set `percentage=100` (preserves today's
-        behaviour: on)
-      - rows with a non-zero percentage → leave alone
-- [ ] Write the migration so it is idempotent and can be run twice safely.
+- [x] Change the column default from `0` to `100`.
+- [x] The migration must **explicitly set the percentage** rather than relying on
+      the default, so that no flag changes behaviour.
+- [x] Write the migration so it is idempotent and can be run twice safely.
+
+**Correction (implemented).** The rule written here originally was
+`default_value=False → percentage=0`, `default_value=True → percentage=100`,
+non-zero percentage → leave alone. That does not preserve behaviour, and it
+breaks this document's own acceptance criterion "No production flag changed
+behaviour as a side effect of the migration". Two cases:
+
+1. A flag with `default_value=true` and `percentage=42` was serving **true to
+   everyone**, because the old fallthrough was the default rather than `false`.
+   Leaving 42 makes ~58% of users get false.
+2. A flag **with rules** short-circuited the percentage entirely, so leaving a low
+   percentage flips matched users outside the bucket to the opposite value.
+
+Modelling both evaluators and diffing every `(default_value, percentage, bucket,
+has_rules, matched, serve)` combination gives the rule that actually preserves it:
+**set `percentage=100` wherever `default_value` is true *or* the flag has any
+rules; otherwise leave it alone.** That is exact for every rule-less flag. The one
+behaviour that still changes is a flag with rules whose `default_value` was true
+now serving false to users who match no rule — that is the intended filtering
+change from 2-D, and no migration can preserve it.
 
 ### 2-C · Remove `default_value` 🗄️
 
@@ -308,15 +321,15 @@ Under the new model nothing needs it: the kill switch means false, and the
 percentage means true. Keeping a field with one vestigial meaning is how the
 current confusion happened.
 
-- [ ] Drop `Flag.default_value` (`models.py:147`).
-- [ ] Remove it from `FlagCreate` (`schemas.py:277`), `FlagUpdate` (`:281`), and
+- [x] Drop `Flag.default_value` (`models.py:147`).
+- [x] Remove it from `FlagCreate` (`schemas.py:277`), `FlagUpdate` (`:281`), and
       `FlagResponse` (`:290`).
-- [ ] Remove the on/off choice from the create-flag form
+- [x] Remove the on/off choice from the create-flag form
       (`frontend/src/components/FlagCreatePanel.tsx`) and from `api.ts`.
-- [ ] Remove `defaultValue` from the bootstrap payload and from
+- [x] Remove `defaultValue` from the bootstrap payload and from
       `packages/catalyst-python-sdk/src/catalyst_sdk/snapshot.py:22`.
-- [ ] Update the SDK evaluator, `DocsPage.tsx`, and the SDK README.
-- [ ] Migration to drop the column, after 2-B has read it.
+- [x] Update the SDK evaluator, `DocsPage.tsx`, and the SDK README.
+- [x] Migration to drop the column, after 2-B has read it.
 
 ### 2-D · Rewrite `evaluate_flag` 🔴
 
@@ -347,52 +360,52 @@ def evaluate_flag(flag, rules, user_id, attributes, percentage, enable_all):
            matched.id if matched else None
 ```
 
-- [ ] The percentage applies to the **filtered** population, exactly as specified.
-- [ ] A matching rule **and** a percentage combine rather than override: the
+- [x] The percentage applies to the **filtered** population, exactly as specified.
+- [x] A matching rule **and** a percentage combine rather than override: the
       percentage splits the matched group, and those outside it get the **opposite**
       of the rule's value.
-- [ ] The same `bucket` is used everywhere. It is
+- [x] The same `bucket` is used everywhere. It is
       `murmur3(f"{flag_key}:{user_id}") % 100` (`evaluator.py:52-58`) — a fixed
       number per user, independent of the percentage. So **raising the percentage
       only ever adds users; it can never remove one.** That is what makes a gradual
       rollout safe. It is not obvious from reading the code, so it needs an
       explicit test.
-- [ ] Reason codes change. Remove `RULE_MATCH`; add `ENABLE_ALL_USERS`,
+- [x] Reason codes change. Remove `RULE_MATCH`; add `ENABLE_ALL_USERS`,
       `RULE_AND_ROLLOUT`, `RULE_OUTSIDE_ROLLOUT`, `PERCENTAGE_OUTSIDE_ROLLOUT`.
       An operator debugging a rollout needs to tell "your rule did not match" and
       "your rule matched and you fell outside the percentage" apart — two very
       different problems.
-- [ ] `DEFAULT_VALUE` is kept, but it now only ever means `false`.
+- [x] `DEFAULT_VALUE` is kept, but it now only ever means `false`.
 
 ### 2-E · The SDK must fail closed 🔴
 
 If the SDK cannot reach Catalyst, it serves `false`. Always.
 
-- [ ] Remove the last-good-snapshot fallback in
+- [x] Remove the last-good-snapshot fallback in
       `packages/catalyst-python-sdk/src/catalyst_sdk/client.py` — a failed read
       inside `evaluate()` must resolve to `false`, not to the in-memory snapshot.
-- [ ] Remove the disk-cache fallback (`client.py:518-535`) and
+- [x] Remove the disk-cache fallback (`client.py:518-535`) and
       `~/.cache/catalyst` entirely, along with `clear_cache()`, `cache_path`, and
       `CATALYST_CACHE_DIR`.
-- [ ] Keep the conditional read. A `304 Not Modified` is a **successful** read —
+- [x] Keep the conditional read. A `304 Not Modified` is a **successful** read —
       the snapshot in memory stays valid and keeps serving. Only genuine failures
   flip to false.
-- [ ] Keep the single-flight and failure-backoff behaviour. Unchanged.
-- [ ] `default_value` as a client constructor argument
+- [x] Keep the single-flight and failure-backoff behaviour. Unchanged.
+- [x] `default_value` as a client constructor argument
       (`client.py:129`, default `False`) also disappears with 2-C.
-- [ ] Update `AGENTS.md`, which currently documents the disk cache as a feature.
-- [ ] Update the SDK tests that assert the cached fallback, and the README section
+- [x] Update `AGENTS.md`, which currently documents the disk cache as a feature.
+- [x] Update the SDK tests that assert the cached fallback, and the README section
       describing it.
 
 ### 2-F · Mirror everything in the SDK 🔴
 
-- [ ] Same rewrite in
+- [x] Same rewrite in
       `packages/catalyst-python-sdk/src/catalyst_sdk/evaluator.py`.
-- [ ] Export the new reason constants from
+- [x] Export the new reason constants from
       `packages/catalyst-python-sdk/src/catalyst_sdk/__init__.py`.
-- [ ] Parse the new snapshot fields in
+- [x] Parse the new snapshot fields in
       `packages/catalyst-python-sdk/src/catalyst_sdk/snapshot.py`.
-- [ ] Extend `backend/tests/test_sdk_parity.py` so the differential fuzz covers
+- [x] Extend `backend/tests/test_sdk_parity.py` so the differential fuzz covers
       **both switches and rules and a percentage on the same flag**, not each in
       isolation. This suite is the only thing guaranteeing the two
       implementations never drift apart.
@@ -401,37 +414,37 @@ If the SDK cannot reach Catalyst, it serves `false`. Always.
 
 These currently pass and will start failing. That is expected, not a surprise:
 
-- [ ] `backend/tests/test_evaluator.py:32` — rule targeting
-- [ ] `backend/tests/test_evaluator.py:72` — percentage distribution
-- [ ] `backend/tests/test_evaluator.py:138` —
+- [x] `backend/tests/test_evaluator.py:32` — rule targeting
+- [x] `backend/tests/test_evaluator.py:72` — percentage distribution
+- [x] `backend/tests/test_evaluator.py:138` —
       `test_rules_beat_the_percentage_rollout` asserts the **old** short-circuit
-- [ ] `packages/catalyst-python-sdk/tests/test_evaluator.py:138` — same test name
-- [ ] Any SDK test asserting the disk-cache fallback (2-E)
-- [ ] The new tests: both switches at once, 0% and 100% endpoints, the flip
+- [x] `packages/catalyst-python-sdk/tests/test_evaluator.py:138` — same test name
+- [x] Any SDK test asserting the disk-cache fallback (2-E)
+- [x] The new tests: both switches at once, 0% and 100% endpoints, the flip
       behaviour, monotonicity, and the filtered-out case
 
 ### 2-H · Frontend 🔴
 
 Everything here encodes the old behaviour and will be wrong after 2-D:
 
-- [ ] `frontend/src/components/FlagCard.tsx` — add the "Enable to all users"
+- [x] `frontend/src/components/FlagCard.tsx` — add the "Enable to all users"
       control. Both switches must be visible and their priority obvious, since one
       silently overrides the other.
-- [ ] `frontend/src/components/RolloutSlider.tsx` — the disabled state currently
+- [x] `frontend/src/components/RolloutSlider.tsx` — the disabled state currently
       keys off the kill switch only (`:37-40` in `FlagCard`). Both switches now
       bypass the slider.
-- [ ] `frontend/src/components/EvalPlayground.tsx` — `REASON_LABELS` (`:12-18`),
+- [x] `frontend/src/components/EvalPlayground.tsx` — `REASON_LABELS` (`:12-18`),
       which turns a reason code into the sentence a user reads.
-- [ ] `frontend/src/lib/attributeCatalog.ts` — `previewRuleMatch` (`:364`), the
+- [x] `frontend/src/lib/attributeCatalog.ts` — `previewRuleMatch` (`:364`), the
       client-side copy of the evaluator behind the rule builder's match preview.
-- [ ] `frontend/src/components/RuleBuilder.tsx` — the preview's closing line
+- [x] `frontend/src/components/RuleBuilder.tsx` — the preview's closing line
       ("Nothing matches, so the percentage rollout and then the flag default
       decide") is now wrong; it must explain the real outcome.
-- [ ] `frontend/src/components/FlagCreatePanel.tsx` — drop the `default_value`
+- [x] `frontend/src/components/FlagCreatePanel.tsx` — drop the `default_value`
       toggle (2-C).
-- [ ] `frontend/src/api.ts` — remove `default_value`; add `enable_all` and the
+- [x] `frontend/src/api.ts` — remove `default_value`; add `enable_all` and the
       new reason codes.
-- [ ] `frontend/src/test/ruleBuilder.test.tsx` (450 lines) and
+- [x] `frontend/src/test/ruleBuilder.test.tsx` (450 lines) and
       `rolloutSlider.test.tsx` will need updating.
 
 **On the match preview and hashing:** showing "you are inside/outside the rollout"
@@ -441,32 +454,40 @@ explains the rules and percentage in general terms, and the playground — which
 calls the real `/evaluate` endpoint — gives the definitive answer for the specific
 user. Revisit only if users need it directly.
 
-- [ ] Enforce the 25-condition limit in the builder UI. The server caps at 25
+- [x] Enforce the 25-condition limit in the builder UI. The server caps at 25
       (`schemas.py:227`) but the "Add condition" button
       (`RuleBuilder.tsx:517-519`) is unlimited, so you can build something that
       looks valid and then fail on save.
-- [ ] Use the `priority` field the API already accepts (`schemas.py:231`, `:241`)
-      and the builder never sends — ordering is up/down buttons only.
-- [ ] Add rule labels. `TargetingRule` has no name (`models.py:199-220`), so the
-      builder shows "Rule #3".
+- [x] Add rule labels. `TargetingRule` gained a nullable `name`; the builder edits
+      it and falls back to "Rule #3" when it is empty.
+
+**Not done:** the `priority` field the API accepts and the builder never sends.
+Ordering is still up/down buttons, which rewrite the whole list through
+`PUT .../rules/reorder` and renormalize `0..n-1`, so the builder never needs to
+set a priority directly. Wiring it up would be a second way to do the same
+thing, and the reorder path is the one the tests cover.
 
 ### 2-I · Documentation 🔴
 
-- [ ] `backend/app/schemas/schemas.py` — the `reason` documentation on
+- [x] `backend/app/schemas/schemas.py` — the `reason` documentation on
       `EvaluateResponse` (`:86-91`).
-- [ ] `frontend/src/pages/DocsPage.tsx` — the precedence section.
-- [ ] `packages/catalyst-python-sdk/README.md` — same, hand-synced.
-- [ ] `AGENTS.md` — the evaluation and SDK sections describe the old model and the
+- [x] `frontend/src/pages/DocsPage.tsx` — the precedence section.
+- [x] `packages/catalyst-python-sdk/README.md` — same, hand-synced.
+- [x] `AGENTS.md` — the evaluation and SDK sections describe the old model and the
       disk cache.
 
 ### Done when
 
-- [ ] The decision table above is reproduced exactly by tests, row by row.
-- [ ] The server, the SDK, the parity suite, the frontend preview, and all three
+- [x] The decision table above is reproduced exactly by tests, row by row.
+- [x] The server, the SDK, the parity suite, the frontend preview, and all three
       sets of docs describe the same behaviour.
-- [ ] A flag with both switches off, a rule matching, and 40% serves the rule's
+- [x] A flag with both switches off, a rule matching, and 40% serves the rule's
       value to 40% of matched users and the opposite value to the rest.
-- [ ] Raising a percentage never removes a user.
-- [ ] An unreachable Catalyst serves `false` from the SDK, with no cached fallback
+- [x] Raising a percentage never removes a user.
+- [x] An unreachable Catalyst serves `false` from the SDK, with no cached fallback
       anywhere in the code.
-- [ ] No production flag changed behaviour as a side effect of the migration.
+- [x] No production flag changed behaviour as a side effect of the migration,
+      except the intended filtering change described under 2-B.
+- [ ] Applying `003_enable_all.sql` to Neon. Every rule-less flag is preserved
+      exactly, so this is safe, but it still has to be run by hand because
+      startup `create_all()` cannot add or drop a column on an existing table.

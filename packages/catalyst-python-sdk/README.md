@@ -52,11 +52,9 @@ Only runtime dependency is [`httpx`](https://www.python-httpx.org/). Requires Py
 | `host` | no | Base URL of the Catalyst API. Omit it for the hosted API. |
 | `env` | no | Snapshot to load. Defaults to `dev`. |
 | `timeout` | no | Per-request HTTP timeout, seconds. Default `5.0`. |
-| `default_value` | no | Served for an unknown flag or when no snapshot can be loaded. Default `False`. |
 | `refresh_on_evaluate` | no | Read the snapshot as part of each check. Default `True`. |
 | `failure_backoff` | no | Seconds to stop retrying after a failed read. Default `5.0`. |
-| `offline` | no | Skip the API and load only from the disk cache. Implies `refresh_on_evaluate=False`. |
-| `cache_path` | no | `None`/`True` uses `~/.cache/catalyst`, or a path you choose. `False` disables it. |
+| `offline` | no | Never touch the network. Implies `refresh_on_evaluate=False`. Useful for tests. |
 | `raise_on_error` | no | Let read failures raise out of evaluation instead of degrading. |
 
 `project_id` is worth calling out: `/api/v1/bootstrap` takes it as a query
@@ -118,18 +116,33 @@ client = CatalystClient(..., failure_backoff=15.0)
 * **Cheap on the server.** The API answers from a Redis snapshot keyed by
   environment version, so the read does not re-query every flag, state and rule.
   Redis being unavailable only makes it slower.
-* **Degrades, never throws.** A failed read keeps serving the last good
-  snapshot, then the disk cache, then `default_value`. An explicit `refresh()`
-  still raises `AuthorizationError`, because a rejected key will not fix itself.
+* **Fails closed, never throws.** A failed read serves `false`. Serving a stale
+  targeting decision is worse than not serving the feature, so there is no
+  cached fallback anywhere in the SDK. An explicit `refresh()` still raises
+  `AuthorizationError`, because a rejected key will not fix itself.
 
 ## Evaluation precedence
 
 The SDK mirrors the server exactly, in this order:
 
-1. **Emergency kill switch** → serve the flag default
-2. **Targeting rules**, ascending `priority`, first match wins → serve its value
-3. **Percentage rollout** → deterministic Murmur3 bucket over `flag_key:user_id`
-4. **Flag default**
+1. **Emergency kill switch** → everyone gets `false`, nothing else is looked at
+2. **Enable to all users** → everyone gets `true`, no targeting at all
+3. **Targeting rules**, ascending `priority`, first match wins → puts the user
+   in the population. If rules exist and none matched, the user is filtered out
+   and gets `false`.
+4. **Percentage rollout** → a deterministic Murmur3 bucket over
+   `flag_key:user_id` splits the eligible population, so `0%` serves nobody and
+   `100%` serves everybody. A matched user outside the bucket gets the
+   *opposite* of the rule's value, so the rules and the percentage partition the
+   matched group exactly.
+
+The bucket is a fixed number per user, so **raising a percentage only ever adds
+users; it can never remove one.** That is what makes a gradual rollout safe.
+
+Reasons are reported on `EvaluationResult.reason`: `KILL_SWITCH_ACTIVE`,
+`ENABLE_ALL_USERS`, `RULE_AND_ROLLOUT`, `RULE_OUTSIDE_ROLLOUT`,
+`PERCENTAGE_ROLLOUT`, `PERCENTAGE_OUTSIDE_ROLLOUT`, `DEFAULT_VALUE` (rules
+filtered the user out), `FLAG_NOT_FOUND`, `NO_SNAPSHOT`.
 
 Supported operators: `equals`, `not_equals`, `in`, `not_in`, `contains`,
 `starts_with`, `ends_with`, `greater_than`, `greater_than_or_equal`,
@@ -142,7 +155,7 @@ instead of raising.
 
 ## API
 
-### `is_enabled(flag_key, user_id="", attributes=None, default_value=None) -> bool`
+### `is_enabled(flag_key, user_id="", attributes=None) -> bool`
 
 The hot path: one conditional read, then a local decision.
 
@@ -200,15 +213,18 @@ with CatalystClient(...) as client:
     ...
 ```
 
-## Offline and disk cache
+## Failing closed
 
-The last good snapshot is written to `~/.cache/catalyst` (override the
-directory with `CATALYST_CACHE_DIR`) using an atomic write-then-rename. A read
-that fails falls back to it before giving up on `default_value`, so a cold start
-or a momentary outage keeps serving correct decisions.
+There is no disk cache. If the SDK cannot reach Catalyst it serves `false`:
+a flag check inside someone else's request must not become a 500, and it must
+not serve a targeting decision the API can no longer confirm.
+
+A `304 Not Modified` is a **successful** read — the in-memory snapshot stays
+valid and keeps serving. Only a genuine failure flips to false, and the next
+successful read clears it.
 
 ```python
-client = CatalystClient(..., offline=True)   # cache only, no network
+client = CatalystClient(..., offline=True)   # no network at all; serves false
 ```
 
 ## Error handling
@@ -217,11 +233,11 @@ client = CatalystClient(..., offline=True)   # cache only, no network
 |---|---|
 | `ConfigurationError` | Missing `sdk_key` / `project_id`, or an empty `host`. Raised at construction. |
 | `AuthorizationError` | Key rejected or revoked. Propagates from `refresh()`; absorbed during evaluation. |
-| `BootstrapError` | Any other transport or protocol failure. Logged, and the previous snapshot keeps serving. Set `raise_on_error=True` to propagate. |
+| `BootstrapError` | Any other transport or protocol failure. Logged, and evaluation resolves to `false`. Set `raise_on_error=True` to propagate. |
 
 Evaluation never raises. An unknown flag key, a missing snapshot, and a failed
-read all resolve to `default_value` (`False` unless configured otherwise) — a
-flag check inside someone else's request must not become a 500. Set
+read all resolve to `false` — a flag check inside someone else's request must
+not become a 500, and must not turn a feature on by accident. Set
 `raise_on_error=True` when you would rather find out.
 
 ## Demo
@@ -252,7 +268,7 @@ pytest
 Two layers guard correctness:
 
 * The SDK's own suite covers hashing, the operator matrix, precedence, ETag
-  handling, refresh, auto-refresh, and the disk cache.
+  handling, refresh, auto-refresh, and failing closed.
 * `backend/tests/test_sdk_parity.py` is a **differential test** that runs the
   server's evaluator and the SDK's evaluator over the same fuzzed inputs and
   requires identical values, reasons, and rule ids. It also checks Murmur3

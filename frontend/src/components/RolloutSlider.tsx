@@ -5,13 +5,19 @@ interface RolloutSliderProps {
   percentage: number;
   onCommit: (percentage: number) => void;
   disabled?: boolean;
+  /** Why the slider is disabled, so a greyed-out control is never a mystery. */
+  hint?: string | null;
   debounceMs?: number;
 }
 
 type SliderStyle = CSSProperties & { '--value'?: string };
 
 /**
- * Canary rollout slider.
+ * Canary rollout slider: the share of eligible users who get the feature.
+ *
+ * 0% serves nobody and 100% serves everybody. When a switch is overriding the
+ * rollout the slider is disabled and `hint` says which one, because a disabled
+ * control with no explanation reads as a bug.
  *
  * A drag fires an `input` event per pixel, so committing on every change would
  * issue one PATCH per step and bump the environment version (and the audit log)
@@ -23,6 +29,7 @@ export function RolloutSlider({
   percentage,
   onCommit,
   disabled = false,
+  hint = null,
   debounceMs = 400,
 }: RolloutSliderProps) {
   const [draft, setDraft] = useState(percentage);
@@ -111,10 +118,11 @@ export function RolloutSlider({
         aria-valuetext={`${draft} percent${pending ? ', saving' : ''}`}
       />
       <div className="rollout-scale" aria-hidden="true">
-        <span>0%</span>
+        <span>0% — nobody</span>
         <span>50%</span>
-        <span>100%</span>
+        <span>100% — everybody</span>
       </div>
+      {hint && <p className="rollout-hint">{hint}</p>}
     </div>
   );
 }

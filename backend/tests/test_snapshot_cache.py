@@ -95,7 +95,7 @@ async def create_org_project_flag(client, name: str) -> tuple[str, str]:
     assert project.status_code == 201, project.text
     flag = await client.post(
         f"{API}/flags?project_id={project.json()['id']}",
-        json={"key": "ai-assistant", "name": "AI Assistant", "default_value": False},
+        json={"key": "ai-assistant", "name": "AI Assistant"},
     )
     assert flag.status_code == 201, flag.text
     return project.json()["id"], flag.json()["key"]
@@ -152,8 +152,8 @@ async def test_cached_entry_for_a_stale_version_is_ignored(client, fake_redis):
             "flags": {
                 flag_key: {
                     "key": flag_key,
-                    "defaultValue": False,
                     "enabled": False,
+                    "enableAll": False,
                     "percentage": 0,
                     "rules": [],
                 }
@@ -217,7 +217,7 @@ async def test_flag_creation_invalidates_every_environment(client, fake_redis):
 
     created = await client.post(
         f"{API}/flags?project_id={project_id}",
-        json={"key": "new-checkout", "name": "New Checkout", "default_value": True},
+        json={"key": "new-checkout", "name": "New Checkout"},
     )
     assert created.status_code == 201, created.text
 

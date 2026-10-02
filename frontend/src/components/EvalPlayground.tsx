@@ -10,10 +10,13 @@ interface EvalPlaygroundProps {
 }
 
 const REASON_LABELS: Record<string, string> = {
-  RULE_MATCH: 'Matched a targeting rule',
-  KILL_SWITCH_ACTIVE: 'Kill switch active',
-  PERCENTAGE_ROLLOUT: 'Matched the percentage rollout',
-  DEFAULT_VALUE: 'No rule or rollout matched — flag default',
+  KILL_SWITCH_ACTIVE: 'Kill switch active — nobody gets the feature',
+  ENABLE_ALL_USERS: 'Enabled to all users — everybody gets the feature',
+  RULE_AND_ROLLOUT: 'Inside the rollout, and a rule matched',
+  RULE_OUTSIDE_ROLLOUT: 'A rule matched, but this user is outside the rollout',
+  PERCENTAGE_ROLLOUT: 'Inside the percentage rollout',
+  PERCENTAGE_OUTSIDE_ROLLOUT: 'Outside the percentage rollout',
+  DEFAULT_VALUE: 'No rule matched — filtered out of the audience',
   FLAG_NOT_FOUND: 'Flag not found',
 };
 

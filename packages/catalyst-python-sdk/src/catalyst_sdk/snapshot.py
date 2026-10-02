@@ -13,9 +13,9 @@ class FlagSnapshot:
     """One flag's state for a single environment."""
 
     key: str
-    default_value: bool = False
     enabled: bool = True
-    percentage: int = 0
+    enable_all: bool = False
+    percentage: int = 100
     version: Optional[int] = None
     rules: List[Rule] = field(default_factory=list)
 
@@ -27,9 +27,9 @@ class FlagSnapshot:
         rules.sort(key=lambda rule: rule.priority)
         return cls(
             key=str(raw.get("key") or ""),
-            default_value=bool(raw.get("defaultValue", raw.get("default_value", False))),
             enabled=bool(raw.get("enabled", True)),
-            percentage=int(raw.get("percentage") or 0),
+            enable_all=bool(raw.get("enableAll", raw.get("enable_all", False))),
+            percentage=int(raw["percentage"]) if raw.get("percentage") is not None else 100,
             version=raw.get("version", version),
             rules=rules,
         )
@@ -77,40 +77,6 @@ class Snapshot:
 
     def __len__(self) -> int:
         return len(self.flags)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialisable form used by the optional disk cache."""
-        return {
-            "env": self.env,
-            "version": self.version,
-            "etag": self.etag,
-            "fetched_at": self.fetched_at,
-            "flags": {
-                key: {
-                    "key": flag.key,
-                    "defaultValue": flag.default_value,
-                    "enabled": flag.enabled,
-                    "percentage": flag.percentage,
-                    "rules": [
-                        {
-                            "id": rule.id,
-                            "priority": rule.priority,
-                            "serve": rule.serve,
-                            "conditions": [
-                                {"attr": c.attr, "op": c.op, "value": c.value}
-                                for c in rule.conditions
-                            ],
-                        }
-                        for rule in flag.rules
-                    ],
-                }
-                for key, flag in self.flags.items()
-            },
-        }
-
-    @classmethod
-    def from_dict(cls, raw: Mapping[str, Any]) -> "Snapshot":
-        return cls.from_payload(raw, etag=raw.get("etag"), fetched_at=raw.get("fetched_at"))
 
 
 __all__ = ["Condition", "FlagSnapshot", "Rule", "Snapshot"]

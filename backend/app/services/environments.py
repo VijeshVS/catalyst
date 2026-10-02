@@ -69,7 +69,11 @@ async def seed_missing_flag_states(db: AsyncSession, project_id: str) -> None:
                     FlagEnvState(
                         flag_id=flag_id,
                         env=env_name,
+                        # A new flag serves nobody until someone rolls it out,
+                        # so the rollout is pinned here rather than left to the
+                        # column default, which is 100.
                         enabled=True,
+                        enable_all=False,
                         percentage=0,
                         version=1,
                     )

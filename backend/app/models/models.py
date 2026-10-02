@@ -145,7 +145,6 @@ class Flag(Base):
     key: Mapped[str] = mapped_column(String(128), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    default_value: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -173,8 +172,11 @@ class Flag(Base):
 class FlagEnvState(Base):
     """Per-environment flag state.
 
-    ``enabled`` is the Emergency Kill Switch, and ``percentage`` is the
-    deterministic canary rollout.  The state version is retained for
+    Two switches, in priority order: ``enabled`` is the Emergency Kill Switch
+    (off means nobody), and ``enable_all`` is "enable to all users" (on means
+    everybody, with no targeting).  ``percentage`` is then the share of the
+    remaining eligible population that receives the feature, so 0 serves
+    nobody and 100 serves everybody.  The state version is retained for
     compatibility with existing clients; the environment version drives the
     bootstrap ETag.
     """
@@ -189,8 +191,12 @@ class FlagEnvState(Base):
         index=True,
     )
     env: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The Emergency Kill Switch. Off means nobody gets the feature.
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    percentage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # "Enable to all users". On means everybody does, with no targeting at all.
+    enable_all: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The share of eligible users who receive the feature, so 0 serves nobody.
+    percentage: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     # Bumped on every state mutation, kill switch and rollout alike, so
     # "when did this rollout last move" is answerable.
@@ -220,6 +226,8 @@ class TargetingRule(Base):
         index=True,
     )
     env: Mapped[str] = mapped_column(String(64), nullable=False)
+    # An operator-facing label. Optional: an unnamed rule reads as "Rule #3".
+    name: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     conditions_json: Mapped[Any] = mapped_column(JSON, default=list, nullable=False)
     serve: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

@@ -111,9 +111,9 @@ def default_payload() -> Dict[str, Any]:
         "flags": {
             "ai-assistant": {
                 "key": "ai-assistant",
-                "defaultValue": False,
                 "enabled": True,
-                "percentage": 0,
+                "enableAll": False,
+                "percentage": 100,
                 "rules": [
                     {
                         "id": "rule-internal",
@@ -135,15 +135,22 @@ def default_payload() -> Dict[str, Any]:
             },
             "new-checkout": {
                 "key": "new-checkout",
-                "defaultValue": False,
                 "enabled": True,
+                "enableAll": False,
                 "percentage": 50,
+                "rules": [],
+            },
+            "everyone-flag": {
+                "key": "everyone-flag",
+                "enabled": True,
+                "enableAll": True,
+                "percentage": 0,
                 "rules": [],
             },
             "killed-flag": {
                 "key": "killed-flag",
-                "defaultValue": True,
                 "enabled": False,
+                "enableAll": False,
                 "percentage": 100,
                 "rules": [
                     {
@@ -156,9 +163,9 @@ def default_payload() -> Dict[str, Any]:
             },
             "versioned": {
                 "key": "versioned",
-                "defaultValue": False,
                 "enabled": True,
-                "percentage": 0,
+                "enableAll": False,
+                "percentage": 100,
                 "rules": [
                     {
                         "id": "rule-version",
@@ -185,25 +192,38 @@ def http() -> RecordingHttp:
 
 
 @pytest.fixture
-def make_client(transport, tmp_path):
-    """Builds a client wired to the fake transport and an isolated cache dir."""
+def make_client(transport):
+    """Builds a client wired to the fake transport.
+
+    Keyword overrides go to the ``CatalystClient`` constructor, except
+    ``percentage`` / ``enable_all``, which are patched onto the snapshot
+    because those live in the payload the transport replays.
+    """
     from catalyst_sdk import CatalystClient
+    from catalyst_sdk.snapshot import Snapshot
 
     created = []
 
-    def _make(**kwargs: Any):
+    def _make(percentage: Optional[int] = None, enable_all: Optional[bool] = None, **kwargs: Any):
         params = {
             "sdk_key": "cp_prod_testkey000000000000",
             "project_id": "project-1",
             "host": "http://catalyst.invalid",
             "env": "prod",
-            "cache_path": str(tmp_path / "cache.json"),
         }
         params.update(kwargs)
         client = CatalystClient(**params)
         # Swap in the fake after construction so no socket is ever opened.
         client._transport = transport
         client._snapshot = None
+        if percentage is not None or enable_all is not None:
+            base = default_payload()
+            for flag in base["flags"].values():
+                if percentage is not None:
+                    flag["percentage"] = percentage
+                if enable_all is not None:
+                    flag["enableAll"] = enable_all
+            transport.payload = base
         try:
             client.refresh()
         except Exception:  # pragma: no cover - only on a broken fixture

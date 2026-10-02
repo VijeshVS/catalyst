@@ -109,9 +109,9 @@ def _flag_entry(flag: Flag, env: str) -> Dict[str, Any]:
     ]
     return {
         "key": flag.key,
-        "defaultValue": flag.default_value,
         "enabled": state.enabled if state else True,
-        "percentage": state.percentage if state else 0,
+        "enableAll": state.enable_all if state else False,
+        "percentage": state.percentage if state else 100,
         "rules": rules,
     }
 

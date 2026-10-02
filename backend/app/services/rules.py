@@ -74,6 +74,7 @@ def serialize_rule(rule: TargetingRule) -> Dict[str, Any]:
     return {
         "id": rule.id,
         "env": rule.env,
+        "name": rule.name,
         "priority": rule.priority,
         "conditions": rule.conditions_json,
         "serve": rule.serve,

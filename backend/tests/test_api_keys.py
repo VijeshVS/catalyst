@@ -199,7 +199,7 @@ async def test_bootstrap_defaults_to_dev_environment(anon_client):
     await anon_client.post(
         f"{API}/flags",
         params={"project_id": project_id},
-        json={"key": "env-default", "name": "Env Default", "default_value": True},
+        json={"key": "env-default", "name": "Env Default"},
     )
 
     # No env parameter: the response must be the dev snapshot.
@@ -298,7 +298,7 @@ async def test_sdk_key_authentication(anon_client):
     flag = await anon_client.post(
         f"{API}/flags",
         params={"project_id": project_id},
-        json={"key": "test-flag", "name": "Test Flag", "default_value": True},
+        json={"key": "test-flag", "name": "Test Flag"},
     )
     assert flag.status_code == 201
 
@@ -377,7 +377,7 @@ async def test_sdk_key_with_invalid_project(anon_client):
     flag1 = await anon_client.post(
         f"{API}/flags",
         params={"project_id": project1_id},
-        json={"key": "flag1", "name": "Flag 1", "default_value": True},
+        json={"key": "flag1", "name": "Flag 1"},
     )
     assert flag1.status_code == 201
 
@@ -385,7 +385,7 @@ async def test_sdk_key_with_invalid_project(anon_client):
     flag2 = await anon_client.post(
         f"{API}/flags",
         params={"project_id": project2_id},
-        json={"key": "flag2", "name": "Flag 2", "default_value": False},
+        json={"key": "flag2", "name": "Flag 2"},
     )
     assert flag2.status_code == 201
 
@@ -497,7 +497,7 @@ async def test_sdk_key_cannot_access_evaluate_endpoint(anon_client):
     flag = await anon_client.post(
         f"{API}/flags",
         params={"project_id": project_id},
-        json={"key": "eval-test", "name": "Eval Test", "default_value": True},
+        json={"key": "eval-test", "name": "Eval Test"},
     )
     assert flag.status_code == 201
 
@@ -524,4 +524,7 @@ async def test_sdk_key_cannot_access_evaluate_endpoint(anon_client):
     assert eval_response.status_code == 200
     eval_data = eval_response.json()
     assert eval_data["flag_key"] == "eval-test"
-    assert eval_data["value"] is True
+    # An SDK key authenticated successfully. A fresh flag serves nobody, so the
+    # served value is false and the reason is the rollout, not auth.
+    assert eval_data["value"] is False
+    assert eval_data["reason"] == "PERCENTAGE_OUTSIDE_ROLLOUT"

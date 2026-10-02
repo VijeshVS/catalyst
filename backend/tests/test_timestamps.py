@@ -30,7 +30,7 @@ async def create_project(client: AsyncClient, name: str) -> tuple[str, str, str]
 async def create_flag(client: AsyncClient, project_id: str, key: str = "ai-assistant") -> dict:
     flag = await client.post(
         f"{API}/flags?project_id={project_id}",
-        json={"key": key, "name": "AI Assistant", "default_value": False},
+        json={"key": key, "name": "AI Assistant"},
     )
     assert flag.status_code == 201, flag.text
     return flag.json()
