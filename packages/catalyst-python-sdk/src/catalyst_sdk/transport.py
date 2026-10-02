@@ -86,7 +86,7 @@ class BootstrapTransport:
         sdk_key: str,
         project_id: str,
         host: Optional[str] = None,
-        env: str = "prod",
+        env: str = "dev",
         timeout: float = 5.0,
         client: Optional[httpx.Client] = None,
     ) -> None:

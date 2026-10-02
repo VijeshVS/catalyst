@@ -84,7 +84,8 @@ class CatalystClient:
         host: Base URL of the Catalyst API. Omit it to use the hosted API
             (:data:`~catalyst_sdk.transport.DEFAULT_HOST`); set ``CATALYST_HOST``
             to change the default for a whole process.
-        env: Environment whose snapshot to load. Defaults to ``prod``.
+        env: Environment whose snapshot to load. Defaults to ``dev``, matching
+            ``/api/v1/bootstrap`` and ``/api/v1/evaluate``.
         timeout: Per-request HTTP timeout in seconds.
         default_value: Value returned for an unknown flag key or when no
             snapshot has loaded yet. Fails safe to ``False``.
@@ -111,7 +112,7 @@ class CatalystClient:
         sdk_key: str,
         project_id: str,
         host: Optional[str] = None,
-        env: str = "prod",
+        env: str = "dev",
         timeout: float = 5.0,
         default_value: bool = False,
         refresh_on_evaluate: bool = True,

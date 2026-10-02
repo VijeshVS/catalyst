@@ -29,7 +29,7 @@ Eval order (PRD v2 §5): `kill OFF -> rules (priority) -> % rollout (murmur(flag
 **Goal:** going from zero to evaluatable flags in <2min. **Precondition:** API + Postgres (+ optional Redis) running (`docker compose up -d postgres`, `prisma migrate dev`, `pnpm dev`).
 
 1. `POST /api/v1/auth/signup {email, password, orgName:"acme"}` → auto-creates org `acme` + project `default` + envs `dev/staging/prod` + 3 `sdk_key`s. JWT set as httpOnly cookie.
-2. Dashboard → Keys page → copy `cp_prod_xxx` (shown once; only prefix + hash stored afterwards).
+2. Dashboard → Keys page → create a key → copy `cp_prod_xxx` (revealed once at creation; only a hash and a non-secret label are stored afterwards).
 3. Create flag: `POST /api/v1/projects/:pid/flags {key:"new-checkout", name:"New checkout", defaultValue:false}` → creates 3 `FlagEnvState` rows (`enabled=true, percentage=0`).
 4. Hand `sdk_key (prod)` + `projectId` to Dev for UC-5/UC-6.
 

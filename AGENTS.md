@@ -144,9 +144,12 @@ Evaluation order: kill switch → rules by ascending priority → percentage rol
 ## API Keys
 
 - Format `cp_<env>_<random32>`, e.g. `cp_prod_a1b2c3d4e5f6g7h8i9j0k1`.
-- Hashed with SHA-256 before storage; the raw key is returned only on creation.
-- SDK clients send the full key in `X-SDK-Key`.
+- Hashed with SHA-256 before storage; the raw key is returned only on creation, as `key` on `ApiKeyCreatedResponse`.
+- SDK clients send the full key in `X-SDK-Key`. Authentication hashes it and compares hashes only; the stored `prefix` column is a non-secret label and is never matched.
+- No response other than creation returns any part of a key.
+- `env` defaults to `dev` on `/bootstrap`, `/evaluate`, and the SDK client, so one system never defaults to two environments.
 - Keys are project-scoped and cannot access resources outside their project.
+- Keys issued before the Phase 0 fix are compromised: their 12-character prefix authenticated, and it was shown on the Keys page. Revoke and reissue each one.
 - `POST /api/v1/projects/{project_id}/keys` — create
 - `GET /api/v1/projects/{project_id}/keys` — list
 - `DELETE /api/v1/projects/{project_id}/keys/{key_id}` — revoke

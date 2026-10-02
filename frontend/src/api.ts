@@ -597,9 +597,13 @@ export interface ApiKey {
   project_id: string;
   env: string;
   name: string;
-  prefix: string;
   revoked: boolean;
   created_at: string;
+}
+
+/** The full key is present only in the creation response. */
+export interface ApiKeyCreated extends ApiKey {
+  key: string;
 }
 
 export interface ApiKeyListResponse {
@@ -609,8 +613,8 @@ export interface ApiKeyListResponse {
 export async function createApiKey(
   projectId: string,
   data: { name: string; env: string },
-): Promise<ApiKey> {
-  return jsonRequest<ApiKey>(
+): Promise<ApiKeyCreated> {
+  return jsonRequest<ApiKeyCreated>(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/keys`,
     {
       method: 'POST',

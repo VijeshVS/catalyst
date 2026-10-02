@@ -42,6 +42,16 @@ def test_requires_sdk_key_and_project():
         BootstrapTransport(host="", sdk_key="k", project_id="p")
 
 
+def test_the_default_environment_is_dev(http):
+    """The SDK defaults to dev, matching /bootstrap and /evaluate."""
+    client = CatalystClient(sdk_key="cp_prod_x", project_id="p1", http_client=http)
+    assert client.env == "dev"
+
+    client.is_enabled("ai-assistant", "u1", {})
+    assert http.requests[0]["params"]["env"] == "dev"
+    client.close()
+
+
 def test_client_exposes_snapshot_metadata(make_client):
     client = make_client()
     assert client.is_ready is True
@@ -348,6 +358,7 @@ def test_first_read_failure_falls_back_to_the_disk_cache(tmp_path):
         sdk_key="cp_prod_x",
         project_id="p1",
         host="http://catalyst.invalid",
+        env="prod",
         cache_path=str(cache),
         http_client=_ExplodingHttp(),
     )
@@ -524,6 +535,7 @@ def test_offline_start_loads_from_the_disk_cache(tmp_path):
         sdk_key="cp_prod_x",
         project_id="project-1",
         host="http://catalyst.invalid",
+        env="prod",
         cache_path=str(cache),
         offline=True,
     )
@@ -585,7 +597,7 @@ def test_cache_path_true_uses_the_default_location(monkeypatch, tmp_path):
     assert client.cache_path is not None
     assert client.cache_path != "True"
     assert client.cache_path.endswith(".json")
-    assert "project-1_prod" in client.cache_path
+    assert "project-1_dev" in client.cache_path, "the cache file is named for the default env"
     client.close()
 
 

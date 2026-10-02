@@ -1,5 +1,6 @@
 from app.schemas.schemas import (
     ApiKeyCreate,
+    ApiKeyCreatedResponse,
     ApiKeyListResponse,
     ApiKeyResponse,
     AuditLogResponse,
@@ -36,6 +37,7 @@ from app.schemas.schemas import (
 
 __all__ = [
     "ApiKeyCreate",
+    "ApiKeyCreatedResponse",
     "ApiKeyListResponse",
     "ApiKeyResponse",
     "AuditLogResponse",

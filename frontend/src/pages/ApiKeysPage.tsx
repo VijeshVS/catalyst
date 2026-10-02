@@ -61,11 +61,11 @@ export function ApiKeysPage() {
 
     setCreating(true);
     try {
-      const key = await createApiKey(projectId, {
+      const created = await createApiKey(projectId, {
         name: newKeyName.trim(),
         env: newKeyEnv,
       });
-      setNewlyCreatedKey(key.prefix);
+      setNewlyCreatedKey(created.key);
       setShowKeyReveal(true);
       setShowCreateModal(false);
       setNewKeyName('');
@@ -92,14 +92,6 @@ export function ApiKeysPage() {
       setError('Failed to revoke API key');
       console.error(err);
     }
-  };
-
-  const maskApiKey = (prefix: string) => {
-    // Show format like: cp_prod_abc...xyz (first 12 chars + ... + last 4 chars)
-    if (prefix.length <= 16) return prefix;
-    const start = prefix.substring(0, 12);
-    const end = prefix.substring(prefix.length - 4);
-    return `${start}...${end}`;
   };
 
   const copyToClipboard = async (text: string) => {
@@ -155,8 +147,6 @@ export function ApiKeysPage() {
                 <div>
                   <h3>{key.name}</h3>
                   <div className="key-meta">
-                    <span className="key-prefix">{maskApiKey(key.prefix)}</span>
-                    <span className="key-separator">•</span>
                     <span className="key-env">{key.env}</span>
                     <span className="key-separator">•</span>
                     <span className="key-created">Created {new Date(key.created_at).toLocaleDateString()}</span>

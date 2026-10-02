@@ -1,6 +1,6 @@
 # Catalyst — Roadmap 2.0
 
-**Status:** planning. Nothing here is implemented yet.
+**Status:** Phase 0 done. Phases 1 and 2 are not implemented yet.
 
 The original roadmap is finished. This one has three parts: fix an API key
 security problem, add timestamps, and **rework how flags are evaluated** so the
@@ -13,7 +13,7 @@ has to be right before anything is built on top of it.
 
 | Phase | What it is | Status |
 |---|---|---|
-| [0](#phase-0--api-key-security-fix) | API key security fix | **Active** |
+| [0](#phase-0--api-key-security-fix) | API key security fix | **Done** |
 | [1](#phase-1--updated_at-timestamps) | `updated_at` timestamps | **Active** |
 | [2](#phase-2--rework-how-flags-are-evaluated) | Rework evaluation | **Active** |
 
@@ -21,7 +21,7 @@ has to be right before anything is built on top of it.
 
 # Phase 0 — API key security fix
 
-**Status: Active.** Do this first.
+**Status: Done.**
 
 ## The problem, in plain words
 
@@ -43,27 +43,27 @@ your project's flags.
 
 ### 0-A · Only the full key may authenticate
 
-- [ ] Delete the fallback lookup in `backend/app/services/api_keys.py:87-89` that
+- [x] Delete the fallback lookup in `backend/app/services/api_keys.py:87-89` that
       matches against the stored `prefix` column. Authentication must work **only**
       by hashing the presented key and comparing it to the stored hash.
-- [ ] Delete `get_api_key_by_prefix` (`api_keys.py:93-96`); call
+- [x] Delete `get_api_key_by_prefix` (`api_keys.py:93-96`); call
       `get_api_key_by_raw_key` directly from `backend/app/api/v1/deps.py:126`.
-- [ ] Fix the two comments describing the abandoned design: `deps.py:107` and
+- [x] Fix the two comments describing the abandoned design: `deps.py:107` and
       `backend/app/schemas/schemas.py:343`.
-- [ ] **The stored hash stays.** The full key is already in the database as a
+- [x] **The stored hash stays.** The full key is already in the database as a
       one-way hash. Keeping it hashed means a stolen backup or a SQL injection
       cannot reveal anyone's key. Do not change this to plain text.
 
 ### 0-B · Stop returning any part of the key
 
-- [ ] Remove `prefix` from `ApiKeyResponse` (`schemas.py:336-345`).
-- [ ] Keys stay distinguishable in the list by **name**, **environment**,
+- [x] Remove `prefix` from `ApiKeyResponse` (`schemas.py:336-345`).
+- [x] Keys stay distinguishable in the list by **name**, **environment**,
       **status**, and **created date** — all already in the response.
-- [ ] The one-time full-key reveal at **creation** is unchanged. That should stay
+- [x] The one-time full-key reveal at **creation** is unchanged. That should stay
       the only moment the real key is ever shown.
-- [ ] **Frontend: `frontend/src/pages/ApiKeysPage.tsx` renders the prefix.** Remove
+- [x] **Frontend: `frontend/src/pages/ApiKeysPage.tsx` renders the prefix.** Remove
       it. The create flow's one-time reveal and copy button stay as they are.
-- [ ] The `ApiKey.prefix` column can stay in the database — it is now just a
+- [x] The `ApiKey.prefix` column can stay in the database — it is now just a
       non-secret label. Dropping the column is a schema change and can ride along
       with a later migration.
 
@@ -87,32 +87,32 @@ landed.
 defaulting to different environments is a trap in a product built around
 environment isolation.
 
-- [ ] Change `/bootstrap` to default to `dev`.
-- [ ] Change the Python SDK's default from `env="prod"` to `env="dev"`
+- [x] Change `/bootstrap` to default to `dev`.
+- [x] Change the Python SDK's default from `env="prod"` to `env="dev"`
       (`packages/catalyst-python-sdk/src/catalyst_sdk/client.py:114`).
-- [ ] Document the default in one place, and check the SDK README and
+- [x] Document the default in one place, and check the SDK README and
       `frontend/src/pages/DocsPage.tsx` for any place that still says `prod`.
 
 ### 0-E · Clean up dead code
 
-- [ ] `get_sdk_key_from_header` (`deps.py:111-113`) — defined, never used.
-- [ ] `verify_api_key` (`api_keys.py:34-40`), `revoke_api_key` (`:127-142`),
+- [x] `get_sdk_key_from_header` (`deps.py:111-113`) — defined, never used.
+- [x] `verify_api_key` (`api_keys.py:34-40`), `revoke_api_key` (`:127-142`),
       `get_api_key_or_404` (`:145-156`) — defined, never called; the endpoint
       re-implements the logic inline.
-- [ ] `random_bytes` at `api_keys.py:20` is assigned and never used.
-- [ ] `revoke_api_key_endpoint` commits twice (`projects.py:201` then `:216`),
+- [x] `random_bytes` at `api_keys.py:20` is assigned and never used.
+- [x] `revoke_api_key_endpoint` commits twice (`projects.py:201` then `:216`),
       writing the revoke and its audit row as two transactions. Combine.
-- [ ] `create_api_key` accepts `user_id` and `user_email` (`api_keys.py:48-49`)
+- [x] `create_api_key` accepts `user_id` and `user_email` (`api_keys.py:48-49`)
       and discards them, because `ApiKey` has no such columns. Either store them
       or stop accepting them.
 
 ### Done when
 
-- [ ] A 12-character nickname in `X-SDK-Key` is rejected with `404`.
-- [ ] The full key still authenticates.
-- [ ] The keys list response and the keys page show no part of any key.
-- [ ] `/evaluate`, `/bootstrap`, and the SDK all default to `dev`.
-- [ ] Every change has a test.
+- [x] A 12-character nickname in `X-SDK-Key` is rejected with `404`.
+- [x] The full key still authenticates.
+- [x] The keys list response and the keys page show no part of any key.
+- [x] `/evaluate`, `/bootstrap`, and the SDK all default to `dev`.
+- [x] Every change has a test.
 
 ---
 
