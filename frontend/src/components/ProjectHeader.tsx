@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import type { Organization, Project } from '../api';
+import { copyText } from '../lib/clipboard';
 import type { ProjectData } from '../workspace/useProject';
 
 interface ProjectHeaderProps {
@@ -35,14 +36,10 @@ export function ProjectHeader({ organization, project, projectData }: ProjectHea
   // The SDK needs this value alongside an SDK key, so make it copyable rather
   // than forcing anyone to select a UUID by hand.
   const copyProjectId = async () => {
-    try {
-      await navigator.clipboard.writeText(project.id);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      // Clipboard access can be denied; do not claim a copy happened.
-      setCopied(false);
-    }
+    // Clipboard access can be denied; do not claim a copy happened.
+    if (!(await copyText(project.id))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
   };
 
   return (

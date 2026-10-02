@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FlagCard } from '../components/FlagCard';
 import type { Flag, FlagState } from '../api';
@@ -123,5 +123,105 @@ describe('FlagCard rollout slider disabling', () => {
     expect(
       screen.getByText(/Enabled to all users, so the rollout is not consulted/i),
     ).toBeInTheDocument();
+  });
+});
+
+describe('FlagCard live evaluation is minimized', () => {
+  it('starts collapsed, like the targeting rules section', () => {
+    renderCard();
+
+    const disclosure = screen.getByRole('button', { name: /live evaluation/i });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText(/test user id/i)).not.toBeInTheDocument();
+  });
+
+  it('opens the section when the disclosure is clicked', () => {
+    renderCard();
+
+    fireEvent.click(screen.getByRole('button', { name: /live evaluation/i }));
+
+    expect(screen.getByRole('button', { name: /live evaluation/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByLabelText(/test user id/i)).toBeInTheDocument();
+  });
+
+  it('closes again on a second click', () => {
+    renderCard();
+    const disclosure = screen.getByRole('button', { name: /live evaluation/i });
+
+    fireEvent.click(disclosure);
+    fireEvent.click(disclosure);
+
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText(/test user id/i)).not.toBeInTheDocument();
+  });
+
+  it('says it has not been evaluated yet while collapsed', () => {
+    renderCard();
+
+    expect(screen.getByText(/not evaluated yet/i)).toBeInTheDocument();
+  });
+
+  it('keeps the decision readable while collapsed', () => {
+    const { projectData, view } = renderCard();
+    projectData.playground[flag.key] = {
+      userId: 'user_123',
+      attributes: {},
+      evaluating: false,
+      result: { flag_key: flag.key, value: false, reason: 'DEFAULT_VALUE', rule_id: null },
+    };
+    view.rerender(<FlagCard flag={flag} projectData={projectData} />);
+
+    // Collapsed, but the answer to the thing you just evaluated is still there.
+    expect(screen.queryByText(/not evaluated yet/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/no rule matched/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /live evaluation/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+});
+
+describe('FlagCard flag key copy button', () => {
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('offers a copy control named after the flag key', () => {
+    renderCard();
+
+    expect(
+      screen.getByRole('button', { name: `Copy flag key ${flag.key}` }),
+    ).toBeInTheDocument();
+  });
+
+  it('copies the key and confirms it', async () => {
+    renderCard();
+    const button = screen.getByRole('button', { name: `Copy flag key ${flag.key}` });
+
+    fireEvent.click(button);
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(flag.key));
+    await waitFor(() => expect(button).toHaveAttribute('data-copied', 'true'));
+  });
+
+  it('does not claim a copy when the clipboard is denied', async () => {
+    vi.mocked(navigator.clipboard.writeText).mockRejectedValue(new Error('denied'));
+    renderCard();
+    const button = screen.getByRole('button', { name: `Copy flag key ${flag.key}` });
+
+    fireEvent.click(button);
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    expect(button).toHaveAttribute('data-copied', 'false');
   });
 });

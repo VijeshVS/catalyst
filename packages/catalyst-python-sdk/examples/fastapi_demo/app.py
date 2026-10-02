@@ -136,7 +136,9 @@ def checkout(
     The classic use case: gate a feature with a flag and show which rule fired.
 
     ``evaluate`` makes one conditional read and then decides locally, so the
-    answer reflects the current configuration.
+    answer reflects the current configuration. ``for_user`` binds this
+    request's identity to the shared client; the returned view costs nothing and
+    keeps using the one snapshot and one refresh loop the process already has.
     """
     sdk = _require_client()
 
@@ -146,7 +148,9 @@ def checkout(
     if x_plan:
         attributes["plan"] = x_plan
 
-    result = sdk.evaluate("new-checkout", user_id=user_id, attributes=attributes)
+    # `for_user` attaches the identity once, so the check reads as a bare flag
+    # name instead of repeating user_id and attributes on every call.
+    result = sdk.for_user(user_id, attributes).evaluate("new-checkout")
 
     # Contrast the SDK against the server so the demo shows they agree.
     return {
@@ -174,7 +178,7 @@ def all_flags(
     return {
         "user_id": user_id,
         "attributes": attributes,
-        "flags": sdk.get_all(user_id=user_id, attributes=attributes),
+        "flags": sdk.for_user(user_id, attributes).get_all(),
     }
 
 
@@ -187,7 +191,7 @@ def inspect(
     """Explains a decision, which is what you reach for when debugging."""
     sdk = _require_client()
     attributes = {"email": email} if email else {}
-    result = sdk.evaluate(flag, user_id=user_id, attributes=attributes)
+    result = sdk.for_user(user_id, attributes).evaluate(flag)
     return {
         "flag": flag,
         "user_id": user_id,
