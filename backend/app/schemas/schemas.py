@@ -340,9 +340,14 @@ class ApiKeyResponse(BaseModel):
     project_id: str
     env: str
     name: str
-    prefix: str  # The full API key (we use the prefix as the secret)
     revoked: bool
     created_at: datetime
+
+
+class ApiKeyCreatedResponse(ApiKeyResponse):
+    """Creation response: the only response that ever carries the full key."""
+
+    key: str
 
 
 class ApiKeyListResponse(BaseModel):

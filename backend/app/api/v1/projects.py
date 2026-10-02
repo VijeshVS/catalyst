@@ -9,12 +9,13 @@ from app.core.db import get_db
 from app.models.models import ApiKey, AuditLog, Environment, User
 from app.schemas.schemas import (
     ApiKeyCreate,
+    ApiKeyCreatedResponse,
     ApiKeyListResponse,
     ApiKeyResponse,
     EnvironmentCreate,
     EnvironmentResponse,
 )
-from app.services.api_keys import create_api_key, list_api_keys, revoke_api_key
+from app.services.api_keys import create_api_key, list_api_keys
 from app.services.environments import seed_missing_flag_states, sort_environments
 
 
@@ -85,7 +86,7 @@ async def create_environment(
 
 @router.post(
     "/{project_id}/keys",
-    response_model=ApiKeyResponse,
+    response_model=ApiKeyCreatedResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_api_key_endpoint(
@@ -119,8 +120,6 @@ async def create_api_key_endpoint(
         project_id=project.id,
         env=data.env,
         name=data.name,
-        user_id=current_user.id,
-        user_email=current_user.email,
     )
 
     # Record audit log
@@ -133,20 +132,20 @@ async def create_api_key_endpoint(
             user_id=current_user.id,
             user_email=current_user.email,
             action="api_key.created",
-            after={"name": data.name, "env": data.env, "prefix": api_key.prefix},
+            after={"name": data.name, "env": data.env},
         )
     )
     await db.commit()
 
-    # Return the full raw key (only time it's exposed)
-    return ApiKeyResponse(
+    # The full key is returned here and nowhere else, ever again.
+    return ApiKeyCreatedResponse(
         id=api_key.id,
         project_id=api_key.project_id,
         env=api_key.env,
         name=api_key.name,
-        prefix=raw_key,  # The full key is the prefix (we use it as the secret)
         revoked=api_key.revoked,
         created_at=api_key.created_at,
+        key=raw_key,
     )
 
 
@@ -168,7 +167,6 @@ async def list_api_keys_endpoint(
                 project_id=k.project_id,
                 env=k.env,
                 name=k.name,
-                prefix=k.prefix,
                 revoked=k.revoked,
                 created_at=k.created_at,
             )
@@ -199,7 +197,6 @@ async def revoke_api_key_endpoint(
         )
 
     api_key.revoked = True
-    await db.commit()
 
     db.add(
         AuditLog(

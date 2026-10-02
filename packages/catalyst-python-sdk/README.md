@@ -50,7 +50,7 @@ Only runtime dependency is [`httpx`](https://www.python-httpx.org/). Requires Py
 | `sdk_key` | yes | An SDK key from the dashboard's **API Keys** tab, sent as `X-SDK-Key`. |
 | `project_id` | yes | The bootstrap endpoint is strictly project scoped. |
 | `host` | no | Base URL of the Catalyst API. Omit it for the hosted API. |
-| `env` | no | Snapshot to load. Defaults to `prod`. |
+| `env` | no | Snapshot to load. Defaults to `dev`. |
 | `timeout` | no | Per-request HTTP timeout, seconds. Default `5.0`. |
 | `default_value` | no | Served for an unknown flag or when no snapshot can be loaded. Default `False`. |
 | `refresh_on_evaluate` | no | Read the snapshot as part of each check. Default `True`. |

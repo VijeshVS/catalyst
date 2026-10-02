@@ -147,7 +147,7 @@ Indexes cover: flag list by project, state lookup by flag+env, bootstrap by proj
 Auth:
 - Dashboard: `POST /auth/signup {email,password,orgName}` → auto-creates `org + project "default" + envs dev/staging/prod + 3 sdk_keys` → sets httpOnly JWT cookie. Returns `{user, org, project, envs}`. Setup <2min gate.
 - `POST /auth/login`, `GET /auth/me`, `POST /auth/logout`.
-- SDK: header `x-sdk-key: cp_<env>_<random32>`. Lookup by `prefix` → sha256 compare → scope to `projectId+env`. Read-only: only `bootstrap/evaluate/playground-eval`. No write.
+- SDK: header `x-sdk-key: cp_<env>_<random32>`. SHA-256 the presented key and compare hashes only (the stored `prefix` is a non-secret label and never authenticates) → scope to `projectId+env`. Read-only: only `bootstrap/evaluate/playground-eval`. No write.
 
 Flags:
 - `GET /projects/:pid/flags?search=&archived=false&env=prod` → `[{key,name,enabled,percentage,prodSummary}]`
@@ -160,7 +160,7 @@ Rules:
 - `POST /flags/:id/rules {env, conditions:[{attr,op,value}], serve}` `PATCH /rules/:rid` `DELETE /rules/:rid` `PUT /flags/:id/rules/reorder {env, orderedIds:[...]}` → renormalize priority 0..n, bump versions, audit.
 
 Keys:
-- `GET /projects/:pid/keys` → `[{env,prefix,createdAt,revoked}]` (never raw)
+- `GET /projects/:pid/keys` → `[{env,name,createdAt,revoked}]` (never any part of a key)
 - `POST /projects/:pid/keys/rotate {env}` → revoke old, return new raw key once + audit.
 
 Evaluate (server fallback + playground):

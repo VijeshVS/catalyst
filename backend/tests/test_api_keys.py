@@ -49,10 +49,18 @@ async def test_create_api_key(anon_client):
     # Verify response structure
     assert key_data["name"] == "Production SDK Key"
     assert key_data["env"] == "prod"
-    assert key_data["prefix"].startswith("cp_prod_")
+    assert key_data["key"].startswith("cp_prod_")
     # cp_prod_ (8 chars) + 22 chars from token_urlsafe(16)
-    assert len(key_data["prefix"]) == 30
+    assert len(key_data["key"]) == 30
     assert key_data["revoked"] is False
+    # No other response exposes any part of the key.
+    assert "prefix" not in key_data
+
+    audit = await anon_client.get(f"{API}/audit", params={"project_id": project_id})
+    assert audit.status_code == 200
+    created = [a for a in audit.json() if a["action"] == "api_key.created"]
+    assert created, "key creation is audited"
+    assert "prefix" not in created[0]["after"]
 
 
 @pytest.mark.asyncio
@@ -110,6 +118,97 @@ async def test_list_api_keys(anon_client):
     key_names = [k["name"] for k in keys_data["keys"]]
     assert "Dev Key" in key_names
     assert "Prod Key" in key_names
+
+    # The list must never expose any part of a key.
+    for listed in keys_data["keys"]:
+        assert "prefix" not in listed
+        assert "key" not in listed
+
+
+@pytest.mark.asyncio
+async def test_key_prefix_does_not_authenticate(anon_client):
+    """The stored display prefix is a label, never a credential."""
+    register = await anon_client.post(
+        f"{API}/auth/register",
+        json={
+            "email": "prefixuser@example.com",
+            "password": "password123",
+            "full_name": "Prefix User",
+        },
+    )
+    assert register.status_code == 201
+    anon_client.headers["Authorization"] = f"Bearer {register.json()['access_token']}"
+
+    org = await anon_client.post(f"{API}/organizations", json={"name": "Prefix Org"})
+    org_id = org.json()["id"]
+
+    project = await anon_client.post(
+        f"{API}/organizations/{org_id}/projects",
+        json={"name": "Prefix Project"},
+    )
+    project_id = project.json()["id"]
+
+    key_response = await anon_client.post(
+        f"{API}/projects/{project_id}/keys",
+        json={"name": "Labelled Key", "env": "prod"},
+    )
+    assert key_response.status_code == 201
+    full_key = key_response.json()["key"]
+    nickname = full_key[:12]
+
+    anon_client.headers.pop("Authorization", None)
+    response = await anon_client.get(
+        f"{API}/bootstrap",
+        params={"project_id": project_id, "env": "prod"},
+        headers={"X-SDK-Key": nickname},
+    )
+    assert response.status_code == 404
+
+    # The full key still authenticates.
+    ok = await anon_client.get(
+        f"{API}/bootstrap",
+        params={"project_id": project_id, "env": "prod"},
+        headers={"X-SDK-Key": full_key},
+    )
+    assert ok.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_defaults_to_dev_environment(anon_client):
+    """/bootstrap defaults to dev, matching /evaluate and the SDK."""
+    register = await anon_client.post(
+        f"{API}/auth/register",
+        json={
+            "email": "envdefault@example.com",
+            "password": "password123",
+            "full_name": "Env Default User",
+        },
+    )
+    assert register.status_code == 201
+    anon_client.headers["Authorization"] = f"Bearer {register.json()['access_token']}"
+
+    org = await anon_client.post(f"{API}/organizations", json={"name": "Default Org"})
+    org_id = org.json()["id"]
+
+    project = await anon_client.post(
+        f"{API}/organizations/{org_id}/projects",
+        json={"name": "Default Project"},
+    )
+    project_id = project.json()["id"]
+
+    await anon_client.post(
+        f"{API}/flags",
+        params={"project_id": project_id},
+        json={"key": "env-default", "name": "Env Default", "default_value": True},
+    )
+
+    # No env parameter: the response must be the dev snapshot.
+    response = await anon_client.get(
+        f"{API}/bootstrap",
+        params={"project_id": project_id},
+    )
+    assert response.status_code == 200
+    assert response.json()["env"] == "dev"
 
 
 @pytest.mark.asyncio
@@ -209,7 +308,7 @@ async def test_sdk_key_authentication(anon_client):
         json={"name": "SDK Key", "env": "prod"},
     )
     assert key_response.status_code == 201
-    api_key = key_response.json()["prefix"]
+    api_key = key_response.json()["key"]
 
     # List keys to verify
     list_response = await anon_client.get(f"{API}/projects/{project_id}/keys")
@@ -296,7 +395,7 @@ async def test_sdk_key_with_invalid_project(anon_client):
         json={"name": "Key 1", "env": "prod"},
     )
     assert key_response.status_code == 201
-    api_key = key_response.json()["prefix"]
+    api_key = key_response.json()["key"]
 
     # Try to access project2 with project1's API key
     anon_client.headers.pop("Authorization", None)
@@ -345,7 +444,7 @@ async def test_revoked_sdk_key_denied(anon_client):
         json={"name": "Revoked Key", "env": "prod"},
     )
     assert key_response.status_code == 201
-    api_key = key_response.json()["prefix"]
+    api_key = key_response.json()["key"]
 
     # Revoke the key
     key_id = key_response.json()["id"]
@@ -408,7 +507,7 @@ async def test_sdk_key_cannot_access_evaluate_endpoint(anon_client):
         json={"name": "Eval SDK Key", "env": "prod"},
     )
     assert key_response.status_code == 201
-    api_key = key_response.json()["prefix"]
+    api_key = key_response.json()["key"]
 
     # Use SDK key to authenticate to /evaluate
     anon_client.headers.pop("Authorization", None)

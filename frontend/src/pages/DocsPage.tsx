@@ -269,7 +269,7 @@ const CONFIG_ROWS: [string, string, string][] = [
   ['sdk_key', 'yes', 'An SDK key from the API Keys tab, sent as X-SDK-Key.'],
   ['project_id', 'yes', 'The bootstrap endpoint is strictly project scoped, so the SDK cannot infer it from the key.'],
   ['host', 'no', 'Base URL of the Catalyst API. Omit it for the hosted API, or set CATALYST_HOST.'],
-  ['env', 'no', 'Which environment snapshot to load. Defaults to prod.'],
+  ['env', 'no', 'Which environment snapshot to load. Defaults to dev.'],
   ['timeout', 'no', 'Per-request HTTP timeout in seconds. Defaults to 5.0.'],
   ['default_value', 'no', 'Served for an unknown flag or when no snapshot can be loaded. Defaults to False.'],
   ['refresh_on_evaluate', 'no', 'Read the snapshot as part of each check. Defaults to True.'],

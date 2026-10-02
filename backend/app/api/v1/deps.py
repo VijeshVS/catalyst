@@ -105,12 +105,8 @@ async def get_environment_or_404(
 
 
 # SDK Key Authentication
-# The SDK sends the full API key (which is the prefix we generate) in the X-SDK-Key header
-
-
-async def get_sdk_key_from_header(request: Request) -> Optional[str]:
-    """Extract the API key from the X-SDK-Key header."""
-    return request.headers.get("X-SDK-Key")
+# The SDK sends the full API key in the X-SDK-Key header. Only the full key
+# authenticates: it is hashed and compared against the stored hash.
 
 
 async def get_current_sdk_key_or_user(
@@ -128,9 +124,9 @@ async def get_current_sdk_key_or_user(
     # First, try SDK key authentication
     sdk_key = request.headers.get("X-SDK-Key")
     if sdk_key:
-        from app.services.api_keys import get_api_key_by_prefix
+        from app.services.api_keys import get_api_key_by_raw_key
 
-        api_key = await get_api_key_by_prefix(db, sdk_key)
+        api_key = await get_api_key_by_raw_key(db, sdk_key)
 
         if not api_key:
             # Return 404 instead of 401 to avoid key enumeration

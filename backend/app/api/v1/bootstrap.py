@@ -22,7 +22,7 @@ async def get_bootstrap_snapshot(
     request: Request,
     response: Response,
     project_id: str = Query(..., description="ID of the project that scopes this snapshot"),
-    env: str = "prod",
+    env: str = "dev",
     db: AsyncSession = Depends(get_db),
     auth_entity: Union[ApiKey, User] = Depends(get_current_sdk_key_or_user),
 ):

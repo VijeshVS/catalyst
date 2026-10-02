@@ -30,7 +30,7 @@ def test_the_client_talks_to_the_deployed_api_by_default(http):
 
     assert len(http.requests) == 1
     assert http.requests[0]["url"] == f"{DEFAULT_HOST}/api/v1/bootstrap"
-    assert http.requests[0]["params"] == {"project_id": "p1", "env": "prod"}
+    assert http.requests[0]["params"] == {"project_id": "p1", "env": "dev"}
     assert http.requests[0]["headers"]["X-SDK-Key"] == "cp_prod_x"
     client.close()
 
