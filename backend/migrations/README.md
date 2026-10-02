@@ -27,4 +27,7 @@ live column has no reader. It is numbered 004 because Phase 2 owns
 `003_enable_all.sql`; the two are independent and either order applies.
 
 Every statement in all three files is idempotent, so a script that was already
-run is safe to run again.
+run is safe to run again. `003` needs that guard explicitly: its percentage
+backfill reads `flags.default_value`, which the same file drops, so the backfill
+is wrapped in a `DO` block that skips once the column is gone. Without it the
+second run fails on the missing column.
