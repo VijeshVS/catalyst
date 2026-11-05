@@ -45,7 +45,7 @@ Catalyst is engineered for high throughput, predictable latency, and high availa
 * **Primary Database (System of Record):** PostgreSQL 16 (strict relational constraints, cascading lifecycle, indexed UUID keys).
 * **Caching Layer:** Redis 7 (stores pre-compiled environment snapshots under `catalyst:snapshot:<project_id>:<env>`; provides non-blocking cache degradation where Redis failure seamlessly falls back to PostgreSQL).
 * **Operator Dashboard:** React 19, Vite, TypeScript, React Router v6, Retro Black & Gold design system (`Playfair Display`, `IBM Plex Mono`).
-* **Client SDK:** Python SDK (`sdk-catalyst` / `catalyst_sdk`), zero native C dependencies (vendors pure Python MurmurHash3 x86_32), HTTPX-backed transport, fail-closed in-memory evaluation.
+* **Client SDK:** Python SDK (`sdk-catalyst` / `catalyst_sdk`), zero native C dependencies (vendors pure Python MurmurHash3 `x86_32`), HTTPX-backed transport, fail-closed in-memory evaluation.
 
 ---
 
@@ -66,7 +66,7 @@ Catalyst is engineered for high throughput, predictable latency, and high availa
 
 ### FR-3: Deterministic Sticky Bucketing Engine
 * **Algorithm:** Pure MurmurHash3 32-bit x86 unsigned integer hashing:
-  $$\text{bucket} = (\text{MurmurHash3}(\text{flag\_key} + \text{":"} + \text{user\_id}) \ \& \ \text{0xFFFFFFFF}) \pmod{100}$$
+  $$\text{bucket} = (\text{MurmurHash3}(\text{flag key} + \text{":"} + \text{user id}) \ \& \ \text{0xFFFFFFFF}) \pmod{100}$$
 * **Stickiness:** Identical inputs yield identical bucket numbers (`0..99`) across server and client SDKs.
 * **Monotonicity Guarantee:** Because a user's bucket is immutable for a given flag key, raising the percentage slider from 20% to 40% is mathematically guaranteed to keep the existing 20% and add new users without churn.
 
@@ -86,7 +86,7 @@ Catalyst is engineered for high throughput, predictable latency, and high availa
 * **Endpoint:** `GET /api/v1/bootstrap?project_id=&env=`
 * **Authentication:** Dual-mode authentication via operator Bearer JWT or SDK header `X-SDK-Key`.
 * **ETag Cache Coherence:** Every mutation increments `Environment.version`. The API derives an HTTP ETag:
-  $$\text{ETag} = \text{W/}"\text{project\_id}:\text{env}:\text{Environment.version}"$$
+  $$\text{ETag} = \text{W/}"\text{project id}:\text{env}:\text{Environment.version}"$$
 * **Conditional Requests:** Clients send `If-None-Match: <etag>`. If unchanged, the server returns **`304 Not Modified`** with an empty body, avoiding Redis reads, database queries, and JSON serialization.
 
 ### FR-6: In-Memory Client SDK (`catalyst_sdk`)

@@ -207,7 +207,7 @@ Design system (Retro Black & Gold):
 ## Python SDK
 
 - Distribution `sdk-catalyst`, import name `catalyst_sdk` (the `catalyst-sdk` PyPI name is taken by an unrelated project). Hatchling build, ships `py.typed`, `license = "MIT"` with a bundled `LICENSE`, only runtime dependency `httpx`.
-- `hashing.py` vendors MurmurHash3 x86_32 so bucketing needs no native extension; verified against `mmh3` and the server's `get_user_bucket()`.
+- `hashing.py` vendors MurmurHash3 `x86_32` so bucketing needs no native extension; verified against `mmh3` and the server's `get_user_bucket()`.
 - `evaluator.py` mirrors `app/services/evaluator.py`: kill switch → enable-all → rules by ascending priority → percentage rollout, with operator aliases normalized.
 - `client.py` reads as it evaluates: construction does no I/O, and every check makes a conditional request before deciding locally, so a dashboard toggle shows on the next check. Snapshot swaps are a single attribute assignment, so readers see a consistent view.
 - Reads are conditional (`If-None-Match`), so an unchanged environment costs a `304` with no body. `test_evaluation_is_sub_millisecond` asserts decision cost with `refresh_on_evaluate=False`.
