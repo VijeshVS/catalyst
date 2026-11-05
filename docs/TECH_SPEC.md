@@ -1,293 +1,339 @@
-# TECH SPEC V2 — Catalyst Feature Flag Platform
+# Technical Specification — Catalyst Feature Management Platform
 
-**Version:** 2.0 | **Status:** Ready for Build | **Source:** `docs/v2/PRD.md` V1.1
-**Stack locked:** Fastify + Prisma (Node TS) | React Vite SPA | Postgres 16 | Docker Compose | JS + Python SDKs
-**Mode:** Fetch-on-load SDK evaluation + server fallback | Simple predictable rules | Auto-provision onboarding
-
-> **What changed from V1 (TECH_SPEC v1.0):** removed push propagation. No SSE, no polling, no Redis pub/sub, no `<5s` gate. The SDK fetches the flag snapshot when the app loads (`init`), evaluates locally, and picks up any toggle on the next load/refresh.
+**Document Status:** Production Technical Specification  
+**System:** Catalyst Control Plane, Evaluation Service & Client SDK  
 
 ---
 
-## 1. Goal + Scope
+## 1. System Architecture
 
-Build PRD V2 in 4 weeks, solo dev: `create flag → target / rollout % per env → SDK evaluates on load → change reflected on next refresh → audit logged`.
+Catalyst provides a decoupled control and data plane architecture:
 
-In scope: US-1 to US-8 (org/project/env, flag CRUD + kill, % rollout, targeting rules, evaluate/bootstrap, JS+Python SDK, dashboard+playground, light audit).
-Out of scope: SSE/polling/WebSockets, RBAC, SSO, multivariate, analytics, scheduling, OpenFeature, multi-region — per PRD v2 §8.
+```mermaid
+flowchart TD
+    subgraph UI ["Operator Plane"]
+        Browser["React 19 Dashboard (Vite SPA)"]
+    end
 
-Success gates (from PRD v2):
-- kill toggle reflected in the 2 demo apps on their next load/bootstrap
-- sticky 100% across 1000 evals
-- distribution ±2% at 10k users
-- 100% mutations audited
-- org→flag setup <2min
+    subgraph ControlPlane ["Catalyst Control Plane (FastAPI)"]
+        API["FastAPI Engine (:8000 /api/v1)"]
+        AuthLayer["Auth Layer (Bearer JWT & X-SDK-Key)"]
+        SnapshotSvc["Snapshot Resolution Service"]
+        ServerEval["Server Evaluator (Playground / REST)"]
+    end
+
+    subgraph DataStore ["Persistence & Cache"]
+        Postgres[("PostgreSQL 16 (System of Record)")]
+        Redis[("Redis 7 (Snapshot Cache)")]
+    end
+
+    subgraph DataPlane ["Application Runtime (Data Plane)"]
+        SDK["Catalyst Python SDK (catalyst_sdk)"]
+        InMemEval["In-Memory Local Evaluator"]
+        App["Application Business Logic"]
+    end
+
+    Browser -->|"JWT Bearer"| API
+    API --> AuthLayer
+    API --> SnapshotSvc
+    API --> ServerEval
+    API -->|"SQLAlchemy 2.0 asyncpg"| Postgres
+    SnapshotSvc -->|"Cached Snapshot"| Redis
+    SnapshotSvc -.->|"Cache Miss / Invalidation"| Postgres
+
+    App -->|"client.is_enabled()"| InMemEval
+    SDK -->|"GET /bootstrap (If-None-Match: ETag)"| AuthLayer
+    SnapshotSvc -->|"304 Not Modified / 200 Snapshot"| SDK
+    SDK -->|"Atomic Pointer Swap"| InMemEval
+```
 
 ---
 
-## 2. Architecture
+## 2. Monorepo Structure
 
-```
-[React Vite Dashboard] ──JWT──> [Fastify API :3001]
-                                      │ Prisma
-[App + SDK] ─sdk_key, GET /bootstrap─>└───┬────┐
-                                        │Postgres│  truth, version++
-                                        └───┬────┘
-                                      │ (optional) Redis 7 snapshot cache
-```
-
-Why this:
-- Fastify: fastest JSON, low boilerplate for solo.
-- Prisma: typed migrations, fast CRUD for `flag_env_state` + `rules`.
-- Postgres truth. Redis is **optional** plain read-cache only (TTL snapshot) — no pub/sub, no streams. At <10k eval/min you can drop it entirely.
-- Fetch-on-load SDK: `init` → bootstrap full snapshot once → eval in-memory <10ms. No background jobs, no connection management, no reconnect logic. A mutation is seen on the next `init`/page load.
-- Server `/evaluate` kept for playground + thin clients + debug.
-
-Services (Docker Compose): `api` (Fastify :3001), `web` (:5173 dev / Nginx prod), `postgres:16` (:5432), optional `redis:7` (:6379)
-
----
-
-## 3. Monorepo Layout
-
-```
+```text
 catalyst/
-  docker-compose.yml
-  package.json (pnpm workspaces)
-  apps/
-    api/                 # Fastify + Prisma
-      src/
-        index.ts         # fastify bootstrap, cors, jwt
-        routes/ auth.ts orgs.ts projects.ts flags.ts rules.ts keys.ts evaluate.ts bootstrap.ts audit.ts playground.ts
-        lib/ eval.ts hash.ts cache.ts auth.ts keys.ts audit.ts version.ts
-        plugins/ prisma.ts jwt.ts
-      prisma/schema.prisma
-      Dockerfile
-    web/                 # React Vite SPA
-      src/ pages/ Flags/ FlagDetail/ Keys/ Playground/ components/ lib/api.ts
-  packages/
-    js-sdk/ src/index.ts eval.ts (shared with api/lib) storage.ts
-    python-sdk/ catalyst/__init__.py eval.py storage.py
-  demo/
-    js-demo/ python-demo/
-  docs/
-    v1/ v2/
-```
-
-Shared eval logic: `apps/api/src/lib/eval.ts` is source of truth, ported 1:1 to `packages/js-sdk` + `python-sdk`. Same murmur hash + operator table. Tested by shared vectors (`eval.vectors.json`).
-
-No `sse.ts`, no stream gateway, no poll loop anywhere in the repo.
-
----
-
-## 4. Data Model (Prisma)
-
-```prisma
-model Organization { id String @id @default(cuid())  name String
-  projects Project[]  users User[]  createdAt DateTime @default(now()) }
-
-model User { id String @id @default(cuid())  email String @unique
-  passwordHash String  orgId String  org Organization @relation(fields:[orgId], references:[id])
-  createdAt DateTime @default(now()) }
-
-model Project { id String @id @default(cuid())  orgId String  name String
-  org Organization @relation(fields:[orgId], references:[id])
-  environments Environment[]  flags Flag[]  apiKeys ApiKey[]
-  @@index([orgId]) }
-
-model Environment { id String @id @default(cuid())  projectId String  name String // dev|staging|prod
-  version Int @default(1) // ++ on any flag change in this env; bootstrap cache-buster (ETag/304)
-  project Project @relation(fields:[projectId], references:[id])
-  @@unique([projectId, name]) }
-
-model Flag { id String @id @default(cuid())  projectId String  key String
-  name String  description String?  defaultValue Boolean @default(false)
-  createdAt DateTime @default(now())  updatedAt DateTime @default(now())
-  project Project @relation(fields:[projectId], references:[id])
-  states FlagEnvState[]  rules TargetingRule[]
-  @@unique([projectId, key]) }
-
-model FlagEnvState { id String @id @default(cuid())  flagId String  env String
-  enabled Boolean @default(true) // global kill: false = always defaultValue
-  percentage Int @default(0)     // 0-100
-  version Int @default(1)        // ++ per mutation
-  flag Flag @relation(fields:[flagId], references:[id], onDelete:Cascade)
-  @@unique([flagId, env])  @@index([flagId]) }
-
-model TargetingRule { id String @id @default(cuid())  flagId String  env String
-  priority Int  // 0 = first, drag-reorder re-normalizes 0..n
-  conditionsJson Json // [{attr, op, value}]
-  serve Boolean // true/false to serve on match
-  flag Flag @relation(fields:[flagId], references:[id], onDelete:Cascade)
-  @@index([flagId, env, priority]) }
-
-model ApiKey { id String @id @default(cuid())  projectId String
-  env String  name String  prefix String // cp_dev_xxxx for lookup
-  hash String // sha256(full key), never store raw
-  revoked Boolean @default(false)  createdAt DateTime @default(now())
-  project Project @relation(fields:[projectId], references:[id])
-  @@index([prefix]) @@index([projectId, env]) }
-
-model AuditLog { id String @id @default(cuid())  orgId String  projectId String
-  flagId String?  env String?  actor String // user email or sdk:prefix
-  action String // flag.created|toggled|rollout.changed|rule.created|...|key.rotated
-  before Json?  after Json?  createdAt DateTime @default(now())
-  @@index([projectId, flagId]) @@index([createdAt]) }
-```
-
-Rules:
-- `flag.key` regex `^[a-z0-9-_.]+$`, unique per `projectId` (env isolation lives in `FlagEnvState`, not duplicate flags).
-- `Environment.version` is the bootstrap cursor + ETag. Any flag/rule/state change in `project+env` → `env.version++` + `state.version++`. Used only so a reload can send `If-None-Match` and get `304` if nothing changed.
-- No edit/delete on `AuditLog` (no API, Prisma middleware blocks).
-
-Indexes cover: flag list by project, state lookup by flag+env, bootstrap by project+env, audit timeline by flag.
-
----
-
-## 5. API Contract (all JSON, base `/api/v1`)
-
-Auth:
-- Dashboard: `POST /auth/signup {email,password,orgName}` → auto-creates `org + project "default" + envs dev/staging/prod + 3 sdk_keys` → sets httpOnly JWT cookie. Returns `{user, org, project, envs}`. Setup <2min gate.
-- `POST /auth/login`, `GET /auth/me`, `POST /auth/logout`.
-- SDK: header `x-sdk-key: cp_<env>_<random32>`. SHA-256 the presented key and compare hashes only (the stored `prefix` is a non-secret label and never authenticates) → scope to `projectId+env`. Read-only: only `bootstrap/evaluate/playground-eval`. No write.
-
-Flags:
-- `GET /projects/:pid/flags?search=&env=prod` → `[{key,name,enabled,percentage,prodSummary}]`
-- `POST /projects/:pid/flags {key,name,description,defaultValue}` → 409 on dup key, 400 on bad regex. Creates 3 `FlagEnvState` rows (one per env, `enabled=true, percentage=0`) + audit.
-- `PATCH /flags/:id {name,description,defaultValue}` → `flag.updated_at++`, audit.
-- `PUT /flags/:id/state/:env {enabled,percentage}` → validate 0-100 int → `version++`, `env.version++`, audit.
-
-Rules:
-- `GET /flags/:id/rules?env=prod` ordered by priority
-- `POST /flags/:id/rules {env, conditions:[{attr,op,value}], serve}` `PATCH /rules/:rid` `DELETE /rules/:rid` `PUT /flags/:id/rules/reorder {env, orderedIds:[...]}` → renormalize priority 0..n, bump versions, audit.
-
-Keys:
-- `GET /projects/:pid/keys` → `[{env,name,createdAt,revoked}]` (never any part of a key)
-- `POST /projects/:pid/keys/rotate {env}` → revoke old, return new raw key once + audit.
-
-Evaluate (server fallback + playground):
-- `POST /evaluate` header `x-sdk-key` or JWT, body `{flagKey, context:{userId?,email?,country?,version?}}` → `{value, reason, version}` `reason = disabled|rule:<id>|rollout|default`. Missing context field → that condition safely skips (no crash).
-
-Bootstrap (SDK init, fetch-on-load):
-- `GET /bootstrap?projectId=&env=prod` header `x-sdk-key` → `{version: envVersion, flags:[{key, enabled, percentage, defaultValue, version, rules:[{id,priority,conditions,serve}]}]}` Archived excluded. **ETag = `version`; SDK sends `If-None-Match` → `304` when unchanged.** SDK caches to disk so a reload (even offline) works from cache.
-- **No `GET /stream`, no SSE, no push of any kind.** A toggle is reflected on the next bootstrap.
-
-Audit + Playground:
-- `GET /flags/:id/audit?env=` → `[{timestamp,actor,action,before,after}]` desc.
-- `POST /flags/:id/test-eval {env, context}` (JWT) → `{value,reason,matchedRuleId}` for dashboard playground.
-
-Errors: `{error:{code,message,details}}` codes `VALIDATION|NOT_FOUND|CONFLICT|UNAUTHORIZED|RATE_LIMITED`. p95 server eval <150ms (Redis-cached snapshot optional).
-
----
-
-## 6. Evaluation Engine (shared, simple predictable)
-
-Order (PRD v2 §5):
-```
-1. if !enabled (kill OFF) → defaultValue, reason=disabled
-3. rules by priority asc → first where ALL conditions true → serve, reason=rule:<id>
-4. rollout: if userId present and hash%100 < percentage → true, reason=rollout
-   else if userId missing → skip rollout → defaultValue
-5. else defaultValue, reason=default (or rollout when percentage 100/0 covers non-targeted)
-```
-
-Hash: `murmur3_32(flagKey + ":" + userId) % 100 < percentage`. Same murmur seed (0) in TS + Python. Sticky 100%. 0% = OFF, 100% = ON for non-targeted with userId.
-
-Operators (AND within rule, OR across rules fixed — no configurable toggle in V1):
-`equals, notEquals, in, notIn, endsWith, startsWith, contains, gte, lt, exists, notExists`
-Semantics (simple):
-- All compares are case-sensitive strings except `gte/lt` which try numeric compare first, else lexicographic string compare. `version>=2.0` = naive string/numeric, NOT semver (documented limit).
-- Missing attr → condition false → rule skips (never throws).
-- `in/notIn` value must be array.
-- `exists` value boolean.
-
-TS pseudocode (`apps/api/src/lib/eval.ts`):
-```ts
-export function evaluate(snapshot: FlagSnapshot, ctx: Ctx) {
-  if (!snapshot.enabled) return {value: snapshot.defaultValue, reason:'disabled'};
-  for (const r of sortBy(snapshot.rules,'priority'))
-    if (r.conditions.every(c => match(c, ctx))) return {value: r.serve, reason:`rule:${r.id}`};
-  if (ctx.userId) {
-    const b = murmur32(`${snapshot.key}:${ctx.userId}`) % 100;
-    if (b < snapshot.percentage) return {value:true, reason:'rollout'};
-  }
-  return {value: snapshot.defaultValue, reason:'default'};
-}
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/          # Endpoints: auth, organizations, projects, flags, evaluate, bootstrap, audit
+│   │   ├── core/            # Config, DB engine, Redis cache client, security & password hashing
+│   │   ├── models/          # SQLAlchemy 2.0 async models
+│   │   ├── schemas/         # Pydantic v2 validation models
+│   │   ├── services/        # snapshots, evaluator, environments, rules, api_keys
+│   │   └── main.py          # FastAPI lifespan initialization and routing
+│   ├── tests/               # pytest suite backed by in-memory SQLite (aiosqlite)
+│   └── pyproject.toml
+├── frontend/
+│   ├── src/
+│   │   ├── auth/            # AuthContext, ProtectedRoute, PublicOnlyRoute
+│   │   ├── components/      # FlagCard, RolloutSlider, RuleBuilder, EvalPlayground, Sidebar
+│   │   ├── lib/             # targeting helpers, attribute catalogue, docs search, clipboard
+│   │   ├── pages/           # Landing, OrgDashboard, ProjectDetail, ApiKeys, Audit, Docs
+│   │   ├── workspace/       # WorkspaceContext, useProject hook
+│   │   ├── App.tsx          # Route registry
+│   │   └── api.ts           # Typed client with automatic JWT refresh
+│   ├── package.json
+│   └── vite.config.ts
+├── packages/catalyst-python-sdk/
+│   ├── src/catalyst_sdk/    # client, evaluator, hashing (pure Murmur3), snapshot, transport
+│   ├── tests/               # pytest suite covering hashing parity, caching, and auto-refresh
+│   └── pyproject.toml
+├── docker-compose.yml       # Local PostgreSQL 16 & Redis 7 services
+└── Makefile
 ```
 
 ---
 
-## 7. Caching, Versioning, Propagation (fetch-on-load)
+## 3. Relational Data Model (SQLAlchemy 2.0)
 
-- Read path: `evaluate/bootstrap` → optional Redis `snap:project:{pid}:env:{env}` (TTL 60s) → miss loads Postgres, caches. No Redis? Read straight from Postgres (fine at V1 scale).
-- Write path: Prisma txn → update state/rule + `env.version++` + `state.version++` + `audit` → invalidate `snap:*`. **Nothing is pushed to clients.**
-- SDK flow: `page load → init → bootstrap (If-None-Match on version → 304 skip) → cache mem+disk → eval local → done`. Offline → last cache → `defaultValue`. Never throw.
-- Client refresh semantics made explicit: a changed toggle is observed on the **next** `init`/page load. Documented, not a bug.
+All primary keys are UUIDv4 strings. Cascading deletes enforce clean relational lifecycles.
 
----
+```mermaid
+erDiagram
+    User ||--o{ Organization : "owns"
+    User ||--o{ AuditLog : "acts in"
+    Organization ||--o{ Project : "contains"
+    Project ||--o{ Environment : "provisions"
+    Project ||--o{ Flag : "scopes"
+    Project ||--o{ ApiKey : "issues"
+    Environment ||--o{ FlagEnvState : "configures"
+    Environment ||--o{ TargetingRule : "scopes"
+    Flag ||--o{ FlagEnvState : "has state per env"
+    Flag ||--o{ TargetingRule : "has rules per env"
 
-## 8. Auth + Keys Detail
+    User {
+        string id PK
+        string email UK
+        string password_hash
+        string full_name
+        datetime created_at
+    }
 
-- Password bcrypt(12), JWT HS256 7d expiry in httpOnly `SameSite=Lax` cookie. All dashboard routes require JWT + `orgId` match (tenant isolation check on every query).
-- `sdk_key` format `cp_<env>_<32hex>`, stored sha256. Prefix indexed for fast lookup. Rotation revokes old immediately; SDK re-inits with new key.
-- V1 uses single `sdk_key` per env read-only. No write via SDK key.
-- Env switch never leaks: every query filters `projectId + env`.
+    Organization {
+        string id PK
+        string name UK
+        string description
+        string owner_id FK
+        datetime created_at
+    }
 
----
+    Project {
+        string id PK
+        string org_id FK
+        string name
+        datetime created_at
+    }
 
-## 9. Dashboard (React Vite SPA)
+    Environment {
+        string id PK
+        string project_id FK
+        string name "dev | staging | prod"
+        int version "increments on state change"
+        datetime created_at
+    }
 
-Routes: `/login /signup /:orgId/flags /:orgId/flags/:key (tabs dev|staging|prod) /:orgId/keys`
-- Flag list: search + status dot (green ON / gray OFF / amber partial %) + per-env summary + kill toggle inline.
-- Flag detail: top Kill switch, Rollout slider + numeric, Rules list + Add modal (attr/op/value/serve) + drag reorder (dnd-kit), Playground inputs → `value + reason + matchedRule`, History timeline (read-only).
-- Keys page: per-env copy/rotate with confirm + show-once.
-- UX rule: every control surfaces `reason`. Non-dev toggle <30s.
-- API client `lib/api.ts` uses `fetch` with credentials include, Zod validation.
+    Flag {
+        string id PK
+        string project_id FK
+        string key UK "scoped to project"
+        string name
+        string description
+        datetime created_at
+        datetime updated_at
+    }
 
----
+    FlagEnvState {
+        string id PK
+        string flag_id FK
+        string env
+        boolean enabled "Kill Switch (off = False)"
+        boolean enable_all "Universal override (on = True)"
+        int percentage "0 to 100"
+        int version
+        datetime updated_at
+    }
 
-## 10. SDKs
+    TargetingRule {
+        string id PK
+        string flag_id FK
+        string env
+        string name
+        int priority "0 = highest priority"
+        json conditions_json "[{attr, op, value}]"
+        boolean serve "value to return on match"
+        datetime created_at
+        datetime updated_at
+    }
 
-JS (`packages/js-sdk`):
-```ts
-await catalyst.init({sdkKey, baseUrl, env, projectId});   // fetch-on-load bootstrap
-catalyst.isEnabled('new-checkout', {userId:'u123', email:'a@test.com'});
+    ApiKey {
+        string id PK
+        string project_id FK
+        string env
+        string name
+        string prefix "display label (cp_env_xxxx)"
+        string hash UK "SHA-256 of raw key"
+        boolean revoked
+        datetime created_at
+    }
+
+    AuditLog {
+        string id PK
+        string org_id
+        string project_id FK
+        string flag_id
+        string env
+        string actor
+        string user_id FK
+        string user_email
+        string action
+        json before
+        json after
+        datetime created_at
+    }
 ```
-- Node + browser (fetch, localStorage fallback, in-memory primary). No EventSource, no polling, no `onUpdate`. Re-`init` (or page reload) to get fresh values.
 
-Python (`packages/python-sdk`):
-```py
-catalyst.init(sdk_key=..., base_url=..., env="prod", project_id=...)
-catalyst.is_enabled("new-checkout", {"userId":"u123"})
-```
-- `requests`, disk cache `~/.catalyst/cache.json`, never raises on eval (returns default). No background thread (nothing to poll).
-
-Both share `eval.vectors.json` tests.
+### Relational Constraints & Indexing Rules
+* **Project Flag Uniqueness:** `UniqueConstraint("project_id", "key", name="uq_project_flag_key")`.
+* **State Uniqueness:** `UniqueConstraint("flag_id", "env", name="uq_flag_env_state")`.
+* **Environment Uniqueness:** `UniqueConstraint("project_id", "name", name="uq_project_env_name")`.
+* **Dense Rule Ordering:** Rules are indexed on `("flag_id", "env", "priority")`. Mutating rules renormalizes priorities sequentially (`0..n-1`).
+* **Version Invalidation:** Modifying any `FlagEnvState` or `TargetingRule` executes `bump_environment_versions()`, which increments `Environment.version` and purges the Redis snapshot key.
 
 ---
 
-## 11. Testing + Perf
+## 4. REST API Contract (`/api/v1`)
 
-- `vitest` (api + js-sdk) + `pytest`: hash stickiness (same user 1000 evals same), distribution ±2% at 10k synthetic userIds, all operators + missing-field skips, kill precedence, reorder priority, audit on every mutation, tenant isolation (env A change never appears in B bootstrap), bootstrap `304` when version unchanged.
-- k6 smoke (optional Wk4): 100 RPS evaluate p95 <150ms local.
-- Manual demo gate: toggle prod OFF → reload both demo apps → both show new value with correct `reason`.
+### Authentication & Users
+* `POST /api/v1/auth/register` — Register owner account.
+* `POST /api/v1/auth/login` — Authenticate with email/password; returns 15-minute access token and 7-day refresh token.
+* `POST /api/v1/auth/refresh` — Stateless access token renewal via refresh token.
+* `GET /api/v1/auth/me` — Current authenticated user profile.
+
+### Multi-Tenancy
+* `GET|POST /api/v1/organizations` — List owned organizations / create new organization.
+* `GET /api/v1/organizations/{org_id}` — Organization details and projects.
+* `POST /api/v1/organizations/{org_id}/projects` — Create project; auto-provisions `dev`, `staging`, and `prod` environments.
+* `GET|POST /api/v1/projects/{project_id}/environments` — List environments / provision custom lowercase environment (`qa`, `perf`).
+
+### Flag & Rule Management
+* `GET /api/v1/flags?project_id=` — List all flags for a project, including per-environment status summaries.
+* `POST /api/v1/flags?project_id=` — Create flag; seeds initial `FlagEnvState` rows for every environment (`percentage: 0`, `enabled: true`).
+* `PATCH /api/v1/flags/{key}?project_id=` — Update name or description.
+* `PATCH /api/v1/flags/{key}/environments/{env}?project_id=` — Mutate kill switch (`enabled`), enable-all (`enable_all`), or rollout `percentage` (`0..100`).
+* `GET|POST /api/v1/flags/{key}/environments/{env}/rules?project_id=` — List or append targeting rules.
+* `PUT /api/v1/flags/{key}/environments/{env}/rules/reorder?project_id=` — Reorder rules; renormalizes priority to `0..n-1`.
+* `PUT|DELETE /api/v1/flags/{key}/environments/{env}/rules/{rule_id}?project_id=` — Update or delete a rule.
+
+### Evaluation & Snapshots
+* `GET /api/v1/bootstrap?project_id=&env=` — Returns full environment snapshot. Accepts Bearer token or `X-SDK-Key`. Supports HTTP `If-None-Match` for `304 Not Modified`.
+* `POST /api/v1/evaluate?project_id=` — Evaluates a single flag remotely (used by Evaluation Playground).
+* `POST /api/v1/batch-evaluate?project_id=` — Evaluates multiple flags for a given context.
+* `GET /api/v1/audit?project_id=` — Paginated audit log timeline for a project.
+
+### SDK Credentials
+* `POST /api/v1/projects/{project_id}/keys` — Generates a new API key (`cp_<env>_<random32>`). Hashes with SHA-256 before storage; raw key returned once upon creation.
+* `GET /api/v1/projects/{project_id}/keys` — Lists active keys (displays prefix label only).
+* `DELETE /api/v1/projects/{project_id}/keys/{key_id}` — Deletes key; writes audit log entry.
 
 ---
 
-## 12. Build Order (4 weeks, solo)
+## 5. Evaluation Engine & Precedence Order
 
-- **Wk1 Auth+CRUD:** Compose + Prisma migrate + signup auto-provision + flag CRUD + FlagEnvState + keys + audit hook + web shell + flag list.
-- **Wk2 Engine:** eval.ts + hash + operators + `/evaluate` + reorder + vectors tests + playground API.
-- **Wk3 Bootstrap+JS:** `/bootstrap` (ETag/304) + js-sdk (init/isEnabled/cache) + js-demo + flag detail UI (kill/slider/rules).
-- **Wk4 Python+Polish:** python-sdk parity + history/keys UI + 2 demo apps + audit timeline + README + demo video. Stretch: live deploy (Render + Vercel).
+Evaluation logic is identical between the FastAPI service ([`evaluator.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/backend/app/services/evaluator.py)) and the Python SDK ([`evaluator.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/packages/catalyst-python-sdk/src/catalyst_sdk/evaluator.py)).
 
-Start command Day 1:
-```bash
-docker compose up -d postgres   # redis optional
-pnpm --filter api prisma migrate dev --name init
-pnpm dev
-```
+### Precedence Steps
+
+1. **Emergency Kill Switch:**
+   ```python
+   if not enabled:
+       return False, "KILL_SWITCH_ACTIVE", None
+   ```
+2. **Enable to All Users:**
+   ```python
+   if enable_all:
+       return True, "ENABLE_ALL_USERS", None
+   ```
+3. **Targeting Rules (Ordered Ascending by Priority):**
+   ```python
+   matched = None
+   for rule in sorted(rules, key=lambda item: item["priority"]):
+       if match_rule(rule["conditions"], attributes):
+           matched = rule
+           break
+
+   if rules and matched is None:
+       return False, "DEFAULT_VALUE", None
+   ```
+4. **Deterministic Sticky Rollout (MurmurHash3):**
+   ```python
+   raw_hash = mmh3.hash(f"{flag_key}:{user_id}")
+   bucket = (raw_hash & 0xFFFFFFFF) % 100
+   serve = True if matched is None else matched["serve"]
+
+   if bucket < percentage:
+       reason = "RULE_AND_ROLLOUT" if matched else "PERCENTAGE_ROLLOUT"
+       return serve, reason, matched_id
+   else:
+       reason = "RULE_OUTSIDE_ROLLOUT" if matched else "PERCENTAGE_OUTSIDE_ROLLOUT"
+       return not serve, reason, matched_id
+   ```
+
+### Condition Matching Operators
+
+| Operator | Canonical Name | Match Logic | Value Handling |
+|---|---|---|---|
+| `equals`, `eq` | `equals` | Strict equality (`actual == target`) | Type-safe (booleans, strings, ints) |
+| `not_equals`, `neq` | `not_equals` | Strict inequality (`actual != target`) | Inverted equality |
+| `in` | `in` | Membership check | Accepts list or comma-separated string |
+| `not_in` | `not_in` | Negative membership check | Inverted `in` |
+| `contains` | `contains` | Substring inclusion | Case-insensitive |
+| `starts_with` | `starts_with` | Substring prefix | Case-insensitive |
+| `ends_with` | `ends_with` | Substring suffix | Case-insensitive |
+| `greater_than`, `gt` | `greater_than` | Float comparison (`float(actual) > float(target)`) | Unparseable values safely evaluate to `False` |
+| `greater_than_or_equal`, `gte` | `greater_than_or_equal` | Float comparison (`float(actual) >= float(target)`) | Unparseable values safely evaluate to `False` |
+| `less_than`, `lt` | `less_than` | Float comparison (`float(actual) < float(target)`) | Unparseable values safely evaluate to `False` |
+| `less_than_or_equal`, `lte` | `less_than_or_equal` | Float comparison (`float(actual) <= float(target)`) | Unparseable values safely evaluate to `False` |
+| `exists` | `exists` | Key presence (`attr in attributes`) | Target value ignored |
+| `not_exists` | `not_exists` | Key absence (`attr not in attributes`) | Target value ignored |
 
 ---
 
-## 13. Risks → Mitigations
+## 6. Snapshot Cache & ETag Mechanics
 
-Stale values after a toggle → next load/bootstrap picks them up; documented behavior, not silent. Hash skew → murmur + distribution test. Key leak → prefix lookup + rotate + revoke immediate. Version string confusion → document naive compare, semver Phase 2.
+### Storage & Invalidation
+* Key format: `catalyst:snapshot:<project_id>:<env>`
+* Cached value: JSON structure containing `version` and the serialized `flags` mapping.
+* **Cache Miss / Update:** Rebuilt via an asynchronous PostgreSQL join:
+  ```sql
+  SELECT * FROM flags
+  JOIN flag_env_states ON ...
+  JOIN targeting_rules ON ...
+  WHERE flags.project_id = :project_id;
+  ```
+* **Graceful Degradation:** All Redis calls in [`cache.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/backend/app/core/cache.py) swallow Redis connection or timeout errors, treating outages as a cache miss and proceeding to PostgreSQL.
+
+### HTTP ETag Protocol
+* The server computes the ETag using the environment version:
+  $$\text{ETag} = \text{W/}"\text{project\_id}:\text{env}:\text{Environment.version}"$$
+* If incoming `If-None-Match` equals the computed ETag, the server returns **`304 Not Modified`** without accessing Redis or loading flag data.
+
+---
+
+## 7. Python Client SDK Implementation (`sdk-catalyst`)
+
+### Core Features
+* **Zero External Dependencies:** Only runtime requirement is `httpx`.
+* **Embedded MurmurHash3:** Vendors standalone 32-bit x86 MurmurHash3 in pure Python ([`hashing.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/packages/catalyst-python-sdk/src/catalyst_sdk/hashing.py)), verified against native `mmh3`.
+* **Atomic Snapshot Swaps:** Snapshot updates are applied via a single pointer assignment (`self._snapshot = new_snapshot`), providing lock-free, race-condition-free reads for evaluation workers.
+* **Concurrency Collapse (Single-Flight):** Multiple concurrent threads attempting to refresh are collapsed into a single HTTP request using a read lock.
+* **Fail-Closed Resilience:** A transport failure triggers a `failure_backoff` window (default 5.0 seconds). Flags evaluate to `False` without blocking application request threads.
+* **User-Scoped Client (`for_user`):** Returns a `__slots__` proxy view binding a specific `user_id` and context dictionary without duplicating transport or memory connections.
+
+---
+
+## 8. Testing & Quality Verification
+
+* **Backend Suite (`backend/tests/`):** 113+ tests using `pytest` and `aiosqlite` (in-memory SQLite), requiring zero live database infrastructure.
+* **SDK Suite (`packages/catalyst-python-sdk/tests/`):** 106+ unit tests covering hash distribution, ETag 304 handling, single-flight locking, and auto-refresh daemon recovery.
+* **Differential Parity Fuzzing (`backend/tests/test_sdk_parity.py`):** Fuzz testing suite comparing FastAPI server evaluation against the Python SDK across 1,000+ random attribute vectors, verifying byte-for-byte reason code and decision parity.
+* **Frontend Suite (`frontend/src/test/`):** 99+ Vitest tests covering route navigation, auth token refresh, rollout slider debouncing, and rule builder validation.
