@@ -66,7 +66,7 @@ Catalyst is engineered for high throughput, predictable latency, and high availa
 
 ### FR-3: Deterministic Sticky Bucketing Engine
 * **Algorithm:** Pure MurmurHash3 32-bit x86 unsigned integer hashing:
-  $$\text{bucket} = (\text{MurmurHash3}(\text{flag key} + \text{":"} + \text{user id}) \ \& \ \text{0xFFFFFFFF}) \pmod{100}$$
+  $$\text{bucket} = (\text{MurmurHash3}(\text{flag key} + \text{":"} + \text{user id}) \mathbin{\mathrm{AND}} \text{0xFFFFFFFF}) \pmod{100}$$
 * **Stickiness:** Identical inputs yield identical bucket numbers (`0..99`) across server and client SDKs.
 * **Monotonicity Guarantee:** Because a user's bucket is immutable for a given flag key, raising the percentage slider from 20% to 40% is mathematically guaranteed to keep the existing 20% and add new users without churn.
 
