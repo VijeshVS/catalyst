@@ -239,7 +239,7 @@ erDiagram
 
 ## 5. Evaluation Engine & Precedence Order
 
-Evaluation logic is identical between the FastAPI service ([`evaluator.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/backend/app/services/evaluator.py)) and the Python SDK ([`evaluator.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/packages/catalyst-python-sdk/src/catalyst_sdk/evaluator.py)).
+Evaluation logic is identical between the FastAPI service ([`evaluator.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/backend/app/services/evaluator.py)) and the Python SDK ([`evaluator.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/packages/catalyst-python-sdk/src/catalyst%5Fsdk/evaluator.py)).
 
 ### Precedence Steps
 
@@ -314,7 +314,7 @@ Evaluation logic is identical between the FastAPI service ([`evaluator.py`](file
 
 ### HTTP ETag Protocol
 * The server computes the ETag using the environment version:
-  $$\text{ETag} = \text{W/}"\text{project\_id}:\text{env}:\text{Environment.version}"$$
+  $$\text{ETag} = \text{W/}"\text{project id}:\text{env}:\text{Environment.version}"$$
 * If incoming `If-None-Match` equals the computed ETag, the server returns **`304 Not Modified`** without accessing Redis or loading flag data.
 
 ---
@@ -323,7 +323,7 @@ Evaluation logic is identical between the FastAPI service ([`evaluator.py`](file
 
 ### Core Features
 * **Zero External Dependencies:** Only runtime requirement is `httpx`.
-* **Embedded MurmurHash3:** Vendors standalone 32-bit x86 MurmurHash3 in pure Python ([`hashing.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/packages/catalyst-python-sdk/src/catalyst_sdk/hashing.py)), verified against native `mmh3`.
+* **Embedded MurmurHash3:** Vendors standalone 32-bit x86 MurmurHash3 in pure Python ([`hashing.py`](file:///Users/vijeshshetty/Documents/projects/catalyst/packages/catalyst-python-sdk/src/catalyst%5Fsdk/hashing.py)), verified against native `mmh3`.
 * **Atomic Snapshot Swaps:** Snapshot updates are applied via a single pointer assignment (`self._snapshot = new_snapshot`), providing lock-free, race-condition-free reads for evaluation workers.
 * **Concurrency Collapse (Single-Flight):** Multiple concurrent threads attempting to refresh are collapsed into a single HTTP request using a read lock.
 * **Fail-Closed Resilience:** A transport failure triggers a `failure_backoff` window (default 5.0 seconds). Flags evaluate to `False` without blocking application request threads.
