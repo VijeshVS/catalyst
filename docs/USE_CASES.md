@@ -69,7 +69,7 @@
    * Set rollout percentage to `5%` on the dashboard.
    * The frontend debounces slider input and commits the update to the API.
    * For non-targeted users, the SDK computes:
-     $$\text{bucket} = (\text{MurmurHash3}(\text{"new-checkout:"} + \text{user id}) \ \& \ \text{0xFFFFFFFF}) \pmod{100}$$
+     $$\text{bucket} = (\text{MurmurHash3}(\text{"new-checkout:"} + \text{user id}) \mathbin{\mathrm{AND}} \text{0xFFFFFFFF}) \pmod{100}$$
    * Users with `bucket < 5` receive `True` (`reason: PERCENTAGE_ROLLOUT`). Users with `bucket >= 5` receive `False` (`reason: PERCENTAGE_OUTSIDE_ROLLOUT`).
 3. **Ramp-Up (25% → 50% → 100%):**
    * Metrics indicate stable performance. The PM moves the slider to `25%`, then `50%`, then `100%`.
