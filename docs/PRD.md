@@ -1,180 +1,149 @@
-# PRD V1 Final — Multi-Tenant Feature Management Platform (Catalyst)
+# Product Requirements Document (PRD) — Catalyst Feature Management Platform
 
-**Version:** 1.1 | **Status:** Final for Build | **Type:** College / Portfolio MVP
-**Template:** Atlassian PRD ([source](https://www.atlassian.com/agile/product-management/requirements)) — sections 1-8 follow it 1:1.
-
-> **Change from V1.0 (v1.1):** Dropped push propagation. No SSE, no polling, no Redis pub/sub, no `<5s` gate. Flags are fetched when the app loads; changes take effect on the next load/refresh.
+**Document Status:** Final Production Specification  
+**Product:** Catalyst Feature Flag Control Plane & SDK  
 
 ---
 
-## 1. Project Specifics
+## 1. Executive Summary & Value Proposition
 
-**Product:** Catalyst — self-hosted, multi-tenant feature flag service with dashboard, evaluation API, and SDKs.
+**Catalyst** is an enterprise-grade, multi-tenant feature flag and remote configuration management platform. It decouples application deployments from feature releases, empowering product and engineering teams to safely control feature rollouts, conduct progressive canary releases, segment users with granular targeting rules, and instantly mitigate production incidents with zero-downtime emergency kill switches.
 
-**Participants:**
-- Product Owner / Dev: You
-- Stakeholders: Faculty reviewer, recruiters (demo evaluators)
-- End users: Developer (integrates SDK), Release Manager (toggles rollouts)
-
-**Status:** V1 scoped. Ready for implementation.
-
-**Target Release:** V1 MVP — 4 weeks from kickoff, localhost + optional live deploy.
-
-**V1 Theme:** Deploy once, release gradually. Full loop: `create flag → target / rollout % per env → SDK evaluates on load → change reflected on next refresh → audit logged`.
+The core design philosophy marries **centralized configuration management** with **decentralized, sub-millisecond local evaluation**:
+* The **Control Plane** (FastAPI backend + React dashboard) manages organizations, projects, environments, flags, targeting rules, credentials, and audit logs.
+* The **Data Plane** (Client SDKs) downloads environment configuration snapshots via HTTP conditional requests (`ETag` / `304 Not Modified`) and evaluates decisions 100% locally in-memory inside application processes in microseconds.
 
 ---
 
-## 2. Team Goals and Business Objectives
+## 2. Product Objectives
 
-1. **Decouple deploy from release:** any flag can be turned OFF instantly without redeploy.
-2. **Gradual rollout:** 0-100% with sticky, deterministic bucketing.
-3. **Targeted release:** attribute rules (userId, email, country, version) with priority order.
-4. **Env isolation:** same flag has independent state in `dev / staging / prod`.
-5. **Simple fetch-on-load:** SDKs get the flag snapshot when the app loads (bootstrap); new values apply on the next load — no real-time fanout.
-6. **Portfolio proof:** live demo with 2 apps + JS + Python SDK + audit trail.
-
-Out-of-scope for V1 success: scale, RBAC, SSO, experimentation analytics, real-time propagation.
+1. **Decouple Deployment from Release:** Eliminate risky "big-bang" deployments by enabling dark launches, pre-release staging, and instant feature toggling without code changes.
+2. **Instant Emergency Blast-Radius Mitigation:** Provide single-click kill switches that immediately shut down broken features in production environments.
+3. **Deterministic, Sticky Percentage Rollouts:** Support incremental canary rollouts from 0% to 100% using consistent MurmurHash3 bucketing, ensuring users never flip-flop across sessions or application restarts.
+4. **Attribute-Based User Targeting:** Segment beta testers, internal teams, or specific customer tiers using flexible attribute conditions with strict priority ordering.
+5. **Sub-Millisecond In-Process Evaluation:** Ensure zero runtime performance penalty by evaluating flags locally in RAM (< 0.05 ms per check) without making network or database calls in the critical request path.
+6. **Strict Multi-Tenancy & Complete Auditability:** Enforce strict data and security boundaries across organizations, projects, and environments, with tamper-proof audit trails for every configuration mutation.
 
 ---
 
-## 3. Background and Strategic Fit
+## 3. User Personas & Workflows
 
-Teams coupling deployment to release can't kill a broken feature, can't beta-test, can't do 1% canaries. Result: risky big-bang releases and hotfix deploys.
-
-LaunchDarkly / Unleash / Flagsmith prove the model, but are heavy SaaS. Catalyst is a simplified, self-hostable clone to demonstrate core distributed-systems concepts: evaluation engine, consistent hashing, multi-tenant isolation (`org → project → env → flag`).
-
-V1 intentionally skips real-time push: flag states are fetched whenever a client loads. Simpler to build, simpler to reason about, and sufficient for gradual-release workflows where the app naturally re-reads state on navigation/refresh.
-
----
-
-## 4. Assumptions & Constraints
-
-**Assumptions:**
-
-1. Boolean flags only in V1 (`true/false`). String/JSON variants deferred to Phase 2.
-2. Single region, low scale: <10 orgs, <100 flags, <10k eval/min on laptop.
-3. Stack: TypeScript Node.js API + React dashboard + Postgres (truth). Redis optional as a cache layer — no pub/sub. Rationale: one language, easy hosting, minimal moving parts.
-4. Auth V1 simple: email/password + JWT for dashboard, `sdk_key` (read-only, per project+env) for evaluation. No RBAC — all logged-in members have full access within org.
-5. SDK consumers are server-side / trusted internal web apps.
-6. Offline SDK never crashes app — falls back to cached value → `defaultValue`.
-7. **Propagation model:** SDK fetches the flag snapshot during `init` (on app load). No polling, no SSE. A toggle takes effect on the next load/refresh.
-
-**Constraints (college):** 1 dev, 4 weeks, must run on free tier (Render/Railway + Vercel or all-local via Docker Compose).
+| Persona | Core Responsibility | Key Workflow in Catalyst |
+|---|---|---|
+| **Release Manager / Site Reliability Engineer (SRE)** | Production stability, deployment velocity | Toggles emergency kill switches during incidents; monitors audit trail; oversees rollout progression. |
+| **Product Manager (PM)** | Feature adoption, customer segmentation | Configures 1% → 25% → 50% → 100% canary rollouts; sets up beta testing targeting rules using custom attributes. |
+| **Software Engineer (Dev)** | SDK integration, application code | Instantiates `CatalystClient`, calls `client.is_enabled()`, verifies targeting behavior in the Evaluation Playground. |
+| **Organization Administrator** | Security, access management | Provisions projects and environments; manages and rotates SHA-256 hashed SDK API keys. |
 
 ---
 
-## 5. User Stories (V1 Functional Requirements)
+## 4. System Architecture & Tech Stack
 
-Evaluation order for all stories:
+Catalyst is engineered for high throughput, predictable latency, and high availability:
 
-```text
-1. Global kill OFF → return default
-2. Rules by priority → first match wins
-3. % rollout via hash
-4. default
+* **Backend Control Plane:** FastAPI, Python 3.12, async SQLAlchemy 2.0, `asyncpg`.
+* **Primary Database (System of Record):** PostgreSQL 16 (strict relational constraints, cascading lifecycle, indexed UUID keys).
+* **Caching Layer:** Redis 7 (stores pre-compiled environment snapshots under `catalyst:snapshot:<project_id>:<env>`; provides non-blocking cache degradation where Redis failure seamlessly falls back to PostgreSQL).
+* **Operator Dashboard:** React 19, Vite, TypeScript, React Router v6, Retro Black & Gold design system (`Playfair Display`, `IBM Plex Mono`).
+* **Client SDK:** Python SDK (`sdk-catalyst` / `catalyst_sdk`), zero native C dependencies (vendors pure Python MurmurHash3 x86_32), HTTPX-backed transport, fail-closed in-memory evaluation.
+
+---
+
+## 5. Functional Requirements
+
+### FR-1: Multi-Tenant Hierarchy & Environment Isolation
+* **Tenancy Structure:** `User -> Organization -> Project -> Environment -> Flag`.
+* **Organizations:** Users own organizations. Organization names are globally unique.
+* **Environments:** Each project automatically provisions three standard environments: `dev`, `staging`, and `prod`. Custom lowercase environments (e.g., `qa`, `perf-test`) can be dynamically provisioned.
+* **State Isolation:** Environments are strictly isolated. A flag key is defined at the project level, but holds independent state (`FlagEnvState`), rollout percentage, and targeting rules in each environment. Updating a flag in `staging` never affects `prod`.
+
+### FR-2: Dual-Switch Flag Controls & Progressive Rollouts
+* **Emergency Kill Switch (`enabled`):** When set to `false`, the flag immediately evaluates to `false` for 100% of users, bypassing all rules and percentages.
+* **Enable-to-All Switch (`enable_all`):** When set to `true`, the flag immediately evaluates to `true` for 100% of users, bypassing all targeting.
+* **Rollout Slider (`percentage`):** Integer from `0` to `100`. Controls the exact percentage of eligible users who receive the feature.
+  * Newly created flags are pinned to `0%` rollout by default to prevent accidental dark launch exposure.
+  * Rollout slider updates are debounced and optimistic on the frontend.
+
+### FR-3: Deterministic Sticky Bucketing Engine
+* **Algorithm:** Pure MurmurHash3 32-bit x86 unsigned integer hashing:
+  $$\text{bucket} = (\text{MurmurHash3}(\text{flag\_key} + \text{":"} + \text{user\_id}) \ \& \ \text{0xFFFFFFFF}) \pmod{100}$$
+* **Stickiness:** Identical inputs yield identical bucket numbers (`0..99`) across server and client SDKs.
+* **Monotonicity Guarantee:** Because a user's bucket is immutable for a given flag key, raising the percentage slider from 20% to 40% is mathematically guaranteed to keep the existing 20% and add new users without churn.
+
+### FR-4: Multi-Attribute Targeting Rules
+* Flags support ordered targeting rules evaluated in ascending priority (`priority: 0` is evaluated first).
+* Each rule defines 1 to 25 conditions evaluated with **AND** logic (all conditions must match).
+* **Supported Operators:**
+  * Strict Equality: `equals`, `not_equals`
+  * Set Membership: `in`, `not_in` (accepts array or comma-delimited strings)
+  * Substring Matching: `contains`, `starts_with`, `ends_with` (case-insensitive)
+  * Numerical Comparisons: `greater_than` (`gt`), `greater_than_or_equal` (`gte`), `less_than` (`lt`), `less_than_or_equal` (`lte`)
+  * Presence Checks: `exists`, `not_exists` (evaluates context key existence; value ignored)
+* **First Match Wins:** The first rule matching the user context claims the user.
+* **Exclusion Contract:** If rules are configured for a flag and none match the user, the user is excluded and served `false` (`DEFAULT_VALUE`).
+
+### FR-5: Versioned Bootstrap Snapshot API
+* **Endpoint:** `GET /api/v1/bootstrap?project_id=&env=`
+* **Authentication:** Dual-mode authentication via operator Bearer JWT or SDK header `X-SDK-Key`.
+* **ETag Cache Coherence:** Every mutation increments `Environment.version`. The API derives an HTTP ETag:
+  $$\text{ETag} = \text{W/}"\text{project\_id}:\text{env}:\text{Environment.version}"$$
+* **Conditional Requests:** Clients send `If-None-Match: <etag>`. If unchanged, the server returns **`304 Not Modified`** with an empty body, avoiding Redis reads, database queries, and JSON serialization.
+
+### FR-6: In-Memory Client SDK (`catalyst_sdk`)
+* **Evaluation Speed:** Sub-millisecond (< 0.05 ms per evaluation) in-memory execution.
+* **Zero Disk Cache:** Operates purely in application RAM, eliminating file permission issues and stale disk artifacts.
+* **Dual Execution Modes:**
+  1. *Per-check conditional validation (`refresh_on_evaluate=True`):* Best for short-lived scripts and serverless functions.
+  2. *In-memory with background polling (`refresh_on_evaluate=False` + `start_auto_refresh(interval)`):* Dedicated daemon thread polls `/bootstrap` periodically, keeping flag evaluations non-blocking and zero-latency on request threads.
+* **Fail-Closed Resilience:** If the control plane becomes unreachable, the SDK serves `false` and activates a failure backoff window (default 5.0 seconds) to prevent cascading connection exhaustion.
+* **Zero-Allocation User Scoping:** `client.for_user(user_id, attributes)` binds user context efficiently across request lifecycles.
+
+### FR-7: Operator Dashboard & Evaluation Playground
+* **Flag Management:** Live cards featuring status badges, rollout sliders, inline kill switches, and rule builders.
+* **Rule Builder:** Interactive condition editor with live client-side match preview.
+* **Evaluation Playground:** Interactive debugger allowing operators to input test `user_id` and attributes to simulate evaluation decisions and inspect reason codes.
+* **API Keys UI:** Issue, display (revealed once upon creation), and delete project-scoped SDK credentials.
+
+### FR-8: Security & Audit Logging
+* **Credential Storage:** API keys formatted as `cp_<env>_<random32>` are stored exclusively as SHA-256 hashes.
+* **User Authentication:** Passwords hashed using bcrypt; session tokens issued as signed JWTs (15-minute access token, 7-day refresh token).
+* **Immutable Audit Trail:** Append-only logging capturing `actor`, `action`, `user_id`, `user_email`, `timestamp`, and full `before` / `after` JSON diffs on every state mutation.
+
+---
+
+## 6. Evaluation Precedence & Reason Codes
+
+Both the backend and SDK evaluators implement an identical 4-stage precedence model:
+
+```mermaid
+flowchart TD
+    Start(["is_enabled(flag_key, user_id, attributes)"]) --> Kill{"1. Kill Switch Off?<br/>(enabled == False)"}
+    Kill -- Yes --> KillOut["Return False<br/>Reason: KILL_SWITCH_ACTIVE"]
+    Kill -- No --> EnableAll{"2. Enable to All?<br/>(enable_all == True)"}
+    
+    EnableAll -- Yes --> AllOut["Return True<br/>Reason: ENABLE_ALL_USERS"]
+    EnableAll -- No --> Rules{"3. Targeting Rules Match?<br/>(Ascending priority)"}
+    
+    Rules -- "Rules exist, no match" --> DefaultOut["Return False<br/>Reason: DEFAULT_VALUE"]
+    Rules -- "Rule matched or no rules" --> Rollout{"4. MurmurHash3 Bucket < Percentage?"}
+    
+    Rollout -- Yes --> MatchOut["Return Matched Serve (True)<br/>Reason: RULE_AND_ROLLOUT / PERCENTAGE_ROLLOUT"]
+    Rollout -- No --> OutsideOut["Return Inverted Serve (False)<br/>Reason: RULE_OUTSIDE_ROLLOUT / PERCENTAGE_OUTSIDE_ROLLOUT"]
 ```
 
-Response always: `{ value: bool, reason: "disabled|rule:<id>|rollout|default", version: N }`.
-
-### US-1 — Org / Project / Env
-
-As a developer, I want orgs with projects and `dev/staging/prod` envs so tenants are isolated.
-
-- Accept: create org → project auto-creates 3 envs; flag `key` unique per `project+env`; SDK key scoped to `project+env`; switching env never leaks state.
-
-### US-2 — Flag CRUD + Kill Switch
-
-As a release manager, I want to create and toggle `new-checkout` so I can kill bad releases.
-
-- Accept: fields `key ^[a-z0-9-_.]+$, name, description, defaultValue`; toggle per env instant; validation error on duplicate key. There is no archive concept.
-
-### US-3 — Percentage Rollout
-
-As a PM, I want a 0-100% slider so I can do 1% → 50% → 100%.
-
-- Accept: slider + numeric input; sticky formula `murmur(hash(flagKey + ":" + userId)) % 100 < percentage`; same user same result across 1000 evals; 0% = OFF, 100% = ON for non-targeted users.
-
-### US-4 — Targeting Rules
-
-As a PM, I want `IF email endsWith @test.com OR country==IN AND version>=2.0 THEN true` so I can beta-test.
-
-- Accept: multiple rules per flag/env with drag-reorder priority; conditions `equals, in, notIn, endsWith, startsWith, >=, <, exists`; AND within rule, OR across rules configurable; first match wins; playground tester shows matched rule.
-
-### US-5 — Evaluate + Bootstrap API
-
-As a developer, I want APIs so my app checks flags fast.
-
-- Accept:
-  - `POST /api/v1/evaluate {flagKey, context:{userId,email,country,version}} → {value, reason}`
-  - `GET /api/v1/bootstrap?env=prod (sdk_key header) → {flags:[{key,value}], version}`
-  - p95: server eval <150ms, SDK local <10ms post-bootstrap; missing context fields → rule safely skips, falls to rollout/default.
-- **No SSE / streaming endpoint in V1.** Flags are pulled on load; 304 (`If-None-Match` on `version`) lets a re-load skip the download when nothing changed.
-
-### US-6 — SDKs (JS + Python) + Offline Safety
-
-As a developer, I want `isEnabled()` that fetches flags on load and never crashes offline.
-
-- Accept JS + Python: `init({sdkKey, env})` → bootstrap once → `isEnabled(key, context)` evaluated from memory; memory+disk cache so a reload still works offline; fallback to `defaultValue` on any network failure. No crash on network loss.
-- **No polling, no SSE, no `onUpdate`** — values refresh on the next `init`/page load.
-
-```js
-await catalyst.init({ sdkKey });
-catalyst.isEnabled('new-checkout', { userId: 'u123' });
-```
-
-### US-7 — Dashboard + Playground
-
-As a PM, I want to operate without code.
-
-- Accept pages: org switcher, flag list (search + status dot + env summary), flag detail (per-env tabs, kill toggle, % slider, rules CRUD + reorder, playground `userId/email → result+reason`, history tab), API keys page (copy/rotate). Non-dev can toggle in demo <30s.
-
-### US-8 — Audit Log (light)
-
-As a developer, I want `who/when/old→new` so I can debug.
-
-- Accept: append-only `timestamp, actor, flag, env, action, before_json, after_json` on every mutation; read-only timeline in flag detail; no edit/delete API.
-
-**V1 Success Metrics:** kill reflected in the 2 demo apps on their next load; sticky 100%; distribution ±2% at 10k users; 100% mutations audited; org→flag setup <2min.
-
 ---
 
-## 6. User Interaction and Design
+## 7. Non-Functional Requirements (NFRs)
 
-Low-fi sufficient for V1 (Excalidraw/Figma link to be attached):
-
-1. **Flag list:** `[●] new-checkout | prod 25% | staging ON | dev ON | [toggle]`
-2. **Flag detail:** tabs `dev|staging|prod`; top `Kill [ON/OFF]`; `Rollout [slider]`; `Rules [list + Add rule modal: attribute/operator/value/serve]`; `Playground [inputs → Output: true via rule#2]`; `History [timeline]`
-3. **Keys:** `sdk_key prod: cp_prod_xxx [copy][rotate]`
-
-UX rule: every control shows `reason` — user always knows *why* a flag evaluated true.
-
-**Non-functional V1:** Postgres source of truth; optional Redis as plain read cache (no pub/sub); bcrypt + JWT; `server_key` never in browser; versioned config `version++` per mutation used solely as a bootstrap cache-buster (ETag/304), not for push.
-
-**Data model V1:** `organizations(id), projects(org_id), environments(project_id, name, version), flags(project_id, key, default), flag_env_state(flag_id, env, enabled, percentage), targeting_rules(flag_id, env, priority, conditions_json, serve), audit_logs, api_keys(project_id, env, type, hash)`
-
----
-
-## 7. Questions (Resolved for V1 + Residual)
-
-Resolved with defaults (reopen if you disagree):
-
-- Q1 Audit: **IN V1 light** (required by brief) — full export/search Phase 2.
-- Q2 Types: **boolean-only V1** — string/JSON Phase 2.
-- Q3 SDKs: **JS + Python V1** — browser + server proof.
-- Q4 Propagation: **fetch-on-load only** — no SSE, no polling, no push fanout. Latency of a change = time until the app next boots/refreshes. Phase 2 optionality: SSE/polling later.
-- Q5 Deploy: **Docker Compose local mandatory, live link stretch** (`api`, `web`, `postgres`; Redis optional).
-- Q6 Timeline: **Wk1 Auth+CRUD, Wk2 rules+eval+hash tests, Wk3 bootstrap+JS SDK+UI, Wk4 Python+audit+2 demo apps+video.**
-
-Residual risks: hash skew → murmur + tests cover; key leak → rotation covers; stale values after a toggle → next load picks them up (documented, by design).
-
----
-
-## 8. What We're NOT Doing in V1
-
-Real-time propagation (SSE/polling/WebSockets), RBAC/SSO/SAML, approvals, multivariate/experiments & analytics, scheduling/expiry, flag dependencies, mobile/edge SDKs, OpenFeature, Terraform, multi-region HA, SLA/SOC2. All explicitly Phase 2. Any request for these during build is rejected to protect 4-week scope.
-
----
-
-## Appendix: Build Order
-
-US-1 + US-2 → US-5 eval skeleton → US-3 + US-4 engine → US-8 audit hook → US-6 SDKs + bootstrap → US-7 UI polish → demo apps.
+* **Performance:**
+  * SDK in-memory evaluation: < 0.05 ms (p99).
+  * API `/bootstrap` 304 Not Modified response: < 15 ms (p95).
+  * API `/bootstrap` 200 OK cached snapshot response: < 35 ms (p95).
+* **Reliability:**
+  * System operational during complete Redis outage (automatic fallback to PostgreSQL).
+  * Client applications continue operating normally during Catalyst API outages (fail-closed, cached snapshot retention).
+* **Scalability:**
+  * Single control plane instance serves up to 5,000 requests/sec on `/bootstrap` via 304 short-circuiting.
+* **Data Integrity:**
+  * Foreign key cascades preserve referential integrity across projects, environments, flags, states, and rules.
+  * Unique constraint on `(project_id, key)` prevents duplicate flag collisions.
