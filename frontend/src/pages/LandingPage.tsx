@@ -403,7 +403,7 @@ export function LandingPage() {
         <section className="landing-cta">
           <div className="cta-mark" aria-hidden="true">✦</div>
           <span className="eyebrow">Your next release is ready</span>
-          <h2>Make the brave thing<br /><em>the routine thing.</em></h2>
+          <h2>Make the brave thing,<br /><em>available now.</em></h2>
           <Link className="btn-primary btn-large" to="/app">Enter the workspace <span aria-hidden="true">→</span></Link>
         </section>
       </main>
