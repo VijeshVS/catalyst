@@ -1,0 +1,72 @@
+name: OpenCode Cloud Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: Prompt to send to the agent (multi-line allowed)
+        required: false
+        type: string
+        default: Explain the purpose of Git. Cover its core concepts, why developers use it, and provide practical examples.
+      model:
+        description: OpenCode model ID
+        required: false
+        type: string
+        default: opencode/deepseek-v4.1-flash-free
+  repository_dispatch:
+    types: [opencode-run]
+
+permissions:
+  contents: write
+
+jobs:
+  opencode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      # The agent commits and pushes on its own; give it a commit identity.
+      # Credentials come from actions/checkout (persist-credentials: true).
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Resolve inputs
+        env:
+          INPUT_PROMPT: ${{ inputs.prompt }}
+          INPUT_MODEL: ${{ inputs.model }}
+          PAYLOAD_PROMPT: ${{ github.event.client_payload.prompt }}
+          PAYLOAD_MODEL: ${{ github.event.client_payload.model }}
+        run: |
+          model="${INPUT_MODEL:-${PAYLOAD_MODEL:-opencode/deepseek-v4.1-flash-free}}"
+          prompt="${INPUT_PROMPT:-${PAYLOAD_PROMPT:-Explain the purpose of Git.}}"
+
+          echo "MODEL=$model" >> "$GITHUB_ENV"
+          {
+            echo 'PROMPT<<OPENCODE_PROMPT_EOF'
+            printf '%s\n' "$prompt"
+            echo 'OPENCODE_PROMPT_EOF'
+          } >> "$GITHUB_ENV"
+
+          echo "Prompt (${#prompt} chars):"
+          printf '%s\n' "$prompt"
+
+      - name: Install OpenCode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Verify installation
+        run: opencode --version
+
+      - name: Run OpenCode
+        run: |
+          set -o pipefail
+          opencode run --model "$MODEL" "$PROMPT"
