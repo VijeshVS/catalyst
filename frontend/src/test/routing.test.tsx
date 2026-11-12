@@ -71,6 +71,42 @@ describe('public and protected routing', () => {
     expect(cta).toHaveAttribute('href', '/docs');
   });
 
+  it('explains the problem, objectives, architecture, and evaluation order', async () => {
+    renderAt('/');
+
+    expect(await screen.findByRole('heading', { name: /one deploy/i })).toBeInTheDocument();
+    for (const title of [
+      'Immediate user exposure',
+      'Deployment-dependent rollbacks',
+      'No gradual rollout',
+      'No emergency kill switch',
+    ]) {
+      expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
+    }
+
+    expect(screen.getByRole('heading', { name: /what the system/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Deterministic sticky rollouts' })).toBeInTheDocument();
+
+    // Both planes and the snapshot fetch path must be named on the page.
+    expect(screen.getByRole('heading', { name: /two planes/i })).toBeInTheDocument();
+    expect(screen.getByText('Control plane')).toBeInTheDocument();
+    expect(screen.getByText('Data plane')).toBeInTheDocument();
+    expect(screen.getByText('GET /bootstrap')).toBeInTheDocument();
+
+    // The landing page must document every evaluation reason code.
+    for (const reason of [
+      'KILL_SWITCH_ACTIVE',
+      'ENABLE_ALL_USERS',
+      'DEFAULT_VALUE',
+      'RULE_AND_ROLLOUT',
+      'RULE_OUTSIDE_ROLLOUT',
+      'PERCENTAGE_ROLLOUT',
+      'PERCENTAGE_OUTSIDE_ROLLOUT',
+    ]) {
+      expect(screen.getAllByText(reason).length).toBeGreaterThan(0);
+    }
+  });
+
   it('redirects an unauthenticated deep link to login', async () => {
     renderAt('/app/orgs/org-1/projects/project-1/environments');
     expect(await screen.findByRole('heading', { name: /return to your control room/i })).toBeInTheDocument();

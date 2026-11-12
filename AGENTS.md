@@ -187,6 +187,7 @@ Architecture:
 - `WorkspaceContext` owns org/project summaries, last-valid organization persistence, and org/project creation.
 - `useProject(projectId)` owns flags, environments, active environment/query state, polling, playground evaluation, and flag/environment/rule mutations.
 - `AppShell`/`Sidebar` handle organization switching and project navigation and link out to the public `/docs` SDK reference. The global header holds only branding, health status, and the user menu.
+- `LandingPage.tsx` carries the public narrative: hero → problem statement → capabilities → six objectives (each traced to a mechanism) → architecture → evaluation order → how it works. The architecture and evaluation diagrams are hand-built CSS rather than a runtime diagram library, so they paint with the page and add no dependency; the request flows from `catalyst_sdk` to the API and the snapshot comes back.
 - `DocsPage.tsx` is the public SDK reference at `/docs`, kept in sync with the SDK README by hand.
 - `lib/docsSearch.ts` owns the docs search index and matching so it is unit tested without rendering.
 - `lib/targeting.ts` owns the operator catalogue, shared value coercion, list-token splitting/joining, draft validation, and attribute-input parsing (`key=value` lines or JSON).
@@ -251,7 +252,7 @@ Frontend (`cd frontend`):
 - `npm run test` — routing, auth-aware API client, targeting helpers, rule builder, rollout slider, docs search, flag card, API keys page
 - `npm run lint`
 - `npm run build`
-- **99 tests passing** across 9 files.
+- **100 tests passing** across 9 files.
 
 ## Deployment
 
