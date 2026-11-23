@@ -8,6 +8,7 @@ is a single conditional request and a local decision.
 
 - **Website** — https://catalyst-service.vercel.app
 - **Visual docs** — https://vijeshvs.github.io/catalyst/
+- **Runnable Python apps** — [FastAPI checkout and inventory CLI demos](app-examples/README.md)
 
 ---
 

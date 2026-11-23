@@ -49,6 +49,9 @@ catalyst/
 │   ├── src/catalyst_sdk/    # client, evaluator, hashing, snapshot, transport
 │   ├── tests/
 │   └── examples/
+├── app-examples/
+│   ├── app-1/               # FastAPI shop checkout gated by a feature flag
+│   └── app-2/               # CLI inventory report gated by a feature flag
 ├── frontend/src/
 │   ├── auth/                # AuthContext, protected/public route wrappers
 │   ├── components/          # shell, sidebar, flag controls, rule builder, env UI
@@ -222,6 +225,12 @@ Design system (Retro Black & Gold):
 - `for_user` returns a `UserScopedClient`, a `__slots__` view holding no transport, snapshot, or thread of its own; it shares the parent's, so scoping per request costs nothing. It deliberately has no `for_user`, so a scoped view cannot re-bind and carry one user's attributes to the next.
 - `backend/tests/test_sdk_parity.py` is a differential suite: it fuzzes both evaluators with identical inputs and requires identical values, reasons, and rule ids. Any change to evaluation semantics should keep it green.
 - Release: bump `pyproject.toml` version and merge. `.github/workflows/publish-sdk.yml` re-runs the SDK and parity suites and publishes to PyPI when the version is new, using Trusted Publishing (OIDC) so no token is stored in the repo.
+
+## Python Application Examples
+
+- `app-examples/app-1` is a FastAPI shop API. Its `express-checkout` flag selects an express or standard checkout response; it evaluates per request.
+- `app-examples/app-2` is a CLI inventory report. Its `low-stock-alerts` flag controls whether low-stock alerts are included.
+- Both use `CatalystClient`, load configuration from `.env` with `python-dotenv`, default to the `dev` environment, and include a `.env.example`. The SDK checks on each evaluation by default; neither app uses interval refresh.
 
 ## Local Development
 

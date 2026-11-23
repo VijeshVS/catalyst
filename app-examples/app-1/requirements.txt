@@ -1,0 +1,4 @@
+-e ../../packages/catalyst-python-sdk
+fastapi>=0.115,<1
+python-dotenv>=1.0,<2
+uvicorn[standard]>=0.30,<1
