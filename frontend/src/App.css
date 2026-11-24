@@ -245,6 +245,75 @@
 .footer-brand { margin-right: auto; } .footer-brand strong { font-size: 18px; }
 .footer-links { display: flex; gap: 22px; } .footer-links a { color: var(--text-secondary); text-decoration: none; } .footer-links a:hover { color: var(--gold-bright); }
 
+/* ── Landing: problem ───────────────────────────────────────────────── */
+.problem-section .section-intro { max-width: 730px; }
+.problem-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.problem-card { position: relative; padding: 27px 30px 29px 33px; border: 1px solid var(--border-color); border-radius: 12px; background: linear-gradient(150deg, rgba(28,28,28,.9), rgba(14,14,14,.9)); }
+.problem-card::before { content: ''; position: absolute; top: 27px; bottom: 27px; left: 0; width: 2px; border-radius: 2px; background: linear-gradient(180deg, var(--danger-bright), rgba(231,76,60,0)); }
+.problem-index { display: block; color: var(--danger-bright); font-size: 9px; letter-spacing: .22em; }
+.problem-card h3 { margin: 12px 0 9px; color: var(--text-primary); font: 700 19px var(--font-display); }
+.problem-card p { max-width: 48ch; color: var(--text-secondary); font-size: 11px; line-height: 1.85; }
+
+/* ── Landing: objectives ────────────────────────────────────────────── */
+.objectives-section { display: grid; grid-template-columns: .78fr 1.22fr; gap: 80px; }
+.objective-list { margin: 0; border-top: 1px solid var(--border-color); list-style: none; }
+.objective-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) 150px; align-items: baseline; gap: 18px; padding: 21px 0; border-bottom: 1px solid var(--border-color); }
+.objective-number { color: var(--gold-primary); font: 600 10px var(--font-mono); letter-spacing: .18em; }
+.objective-row h3 { margin-bottom: 7px; color: var(--text-primary); font: 700 16px var(--font-display); }
+.objective-row p { color: var(--text-secondary); font-size: 11px; line-height: 1.8; }
+.objective-trace { justify-self: end; max-width: 150px; color: var(--gold-muted); font-size: 9px; line-height: 1.6; text-align: right; }
+
+/* ── Landing: architecture diagram ──────────────────────────────────── */
+.architecture { display: grid; grid-template-columns: minmax(0, 1fr) 138px minmax(0, 1fr); align-items: stretch; }
+.arch-plane { display: flex; flex-direction: column; padding: 22px; border: 1px solid var(--border-color); border-radius: 15px; background: linear-gradient(160deg, rgba(28,28,28,.92), rgba(14,14,14,.9)); }
+.arch-plane-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.arch-plane-head span { color: var(--gold-bright); font-size: 9px; letter-spacing: .22em; text-transform: uppercase; }
+.arch-plane-head small { color: var(--text-muted); font-size: 9px; }
+.arch-stack { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.arch-node { padding: 13px 15px; border: 1px solid var(--border-color); border-radius: 9px; background: rgba(8,8,8,.62); }
+.arch-node strong { display: block; color: var(--text-primary); font-size: 11px; }
+.arch-node small { display: block; margin-top: 5px; color: var(--text-muted); font-size: 9px; line-height: 1.5; }
+.arch-node.accent { border-color: var(--border-hover); background: var(--gold-wash); box-shadow: inset 0 0 22px var(--gold-wash); }
+.arch-node.accent strong { color: var(--gold-bright); }
+.arch-arrow { display: flex; align-items: center; justify-content: center; gap: 7px; height: 30px; color: var(--gold-muted); font-size: 12px; }
+.arch-arrow em { color: var(--text-muted); font-size: 8.5px; font-style: normal; letter-spacing: .04em; }
+.arch-node-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.arch-connector { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; padding: 0 14px; text-align: center; }
+.arch-connector small { color: var(--text-muted); font-size: 8.5px; line-height: 1.55; }
+.arch-connector small b { display: block; margin-bottom: 2px; color: var(--gold-primary); font-size: 9px; }
+.arch-wire { position: relative; width: 100%; height: 1px; }
+.arch-wire::after { content: ''; position: absolute; top: -3px; border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent; }
+/* The SDK sits left of the API, so the request wire points right at it. */
+.arch-wire-request { background: linear-gradient(90deg, var(--gold-muted), var(--gold-primary)); }
+.arch-wire-request::after { right: -1px; border-left: 7px solid var(--gold-primary); }
+/* The response travels back left into the application. */
+.arch-wire-response { background: linear-gradient(90deg, var(--gold-primary), var(--gold-muted)); }
+.arch-wire-response::after { left: -1px; border-right: 7px solid var(--gold-primary); }
+.architecture-caption { display: flex; gap: 11px; margin-top: 17px; color: var(--text-muted); font-size: 10px; line-height: 1.7; }
+.architecture-caption span { color: var(--gold-primary); }
+
+/* ── Landing: evaluation flow ───────────────────────────────────────── */
+.evaluation-section { display: grid; grid-template-columns: .78fr 1.22fr; gap: 80px; }
+.flow { overflow: hidden; border: 1px solid var(--border-color); border-radius: 15px; background: linear-gradient(160deg, rgba(28,28,28,.92), rgba(14,14,14,.92)); }
+.flow-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 16px 22px; border-bottom: 1px solid var(--border-color); background: var(--gold-wash); }
+.flow-entry b { color: var(--gold-bright); font-size: 8.5px; letter-spacing: .2em; text-transform: uppercase; }
+.flow-entry code { color: var(--text-code); font-size: 10.5px; }
+.flow-gate { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 3px 14px; padding: 19px 22px; border-bottom: 1px solid var(--border-color); }
+.flow-step { grid-row: 1 / span 2; align-self: start; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--gold-muted); border-radius: 50%; color: var(--gold-primary); font-size: 9px; }
+.flow-question { color: var(--text-primary); font: 700 15px var(--font-display); }
+.flow-gate small { display: block; margin-top: 5px; color: var(--text-muted); font-size: 9.5px; line-height: 1.6; }
+.flow-exits { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
+.flow-exit { display: flex; flex-direction: column; gap: 4px; padding: 9px 11px; border: 1px solid var(--border-color); border-radius: 7px; background: rgba(8,8,8,.55); }
+.flow-exit b { color: var(--text-muted); font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; }
+.flow-exit span { color: var(--text-secondary); font-size: 9.5px; line-height: 1.6; }
+.flow-exit span strong { color: var(--text-primary); }
+.flow-exit code { color: var(--text-code); font-size: 8.5px; }
+.flow-exit-go { border-color: rgba(245,197,24,.32); background: var(--gold-wash); }
+.flow-exit-go b { color: var(--gold-bright); }
+.flow-exit-stop { border-color: rgba(231,76,60,.28); }
+.flow-exit-stop b { color: var(--danger-bright); }
+.flow-foot { padding: 15px 22px 17px; color: var(--text-muted); font-size: 9.5px; line-height: 1.7; }
+
 /* ── Auth screens ───────────────────────────────────────────────────── */
 .auth-page { position: relative; min-height: 100vh; overflow: hidden; background: var(--bg-primary); }
 .auth-backdrop { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 0, rgba(245,197,24,.10), transparent 45%), linear-gradient(120deg, transparent 48%, rgba(245,197,24,.025) 49%, transparent 50%); }
@@ -682,6 +751,14 @@ textarea.form-input { resize: vertical; line-height: 1.6; }
   .hero-console { min-height: 400px; margin-top: 20px; }
   .feature-grid { grid-template-columns: repeat(2, 1fr); }
   .how-section { gap: 45px; }
+  .objectives-section, .evaluation-section { grid-template-columns: 1fr; gap: 40px; }
+  .architecture { grid-template-columns: 1fr; }
+  .arch-connector { padding: 18px 0; }
+  .arch-wire { width: 1px; height: 42px; }
+  .arch-wire-request { background: linear-gradient(180deg, var(--gold-muted), var(--gold-primary)); }
+  .arch-wire-request::after { top: auto; bottom: -1px; left: -3px; right: auto; border: 0; border-top: 7px solid var(--gold-primary); border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; }
+  .arch-wire-response { background: linear-gradient(180deg, var(--gold-primary), var(--gold-muted)); }
+  .arch-wire-response::after { top: -1px; right: auto; bottom: auto; left: -3px; border: 0; border-bottom: 7px solid var(--gold-primary); border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; }
   .app-body { grid-template-columns: 218px minmax(0,1fr); }
   .app-content { padding-inline: 28px; }
   .environment-create-panel { align-items: flex-start; flex-direction: column; }
@@ -695,6 +772,9 @@ textarea.form-input { resize: vertical; line-height: 1.6; }
   .stack-strip { align-items: flex-start; flex-direction: column; justify-content: center; padding: 17px 0; gap: 10px; } .stack-strip > div { flex-wrap: wrap; gap: 9px; }
   .landing-section { padding-top: 90px; } .section-intro { margin-bottom: 32px; } .section-intro h2 { font-size: 39px; }
   .feature-grid { grid-template-columns: 1fr; } .feature-card { min-height: 220px; } .feature-card h3 { margin-top: 35px; }
+  .problem-grid { grid-template-columns: 1fr; }
+  .objective-row { grid-template-columns: 30px minmax(0, 1fr); gap: 12px; }
+  .objective-trace { grid-column: 2; justify-self: start; max-width: none; margin-top: 7px; text-align: left; }
   .how-section { display: block; padding-bottom: 90px; } .how-section .section-intro { margin-bottom: 35px; }
   .landing-cta { margin-bottom: 75px; padding: 65px 15px; } .landing-footer { align-items: flex-start; flex-direction: column; gap: 18px; padding: 28px 0; }
   .auth-header { height: 70px; } .auth-main { padding: 42px 16px 75px; } .auth-card { padding: 32px 23px 25px; } .auth-card-heading h1 { font-size: 29px; }
@@ -728,6 +808,7 @@ textarea.form-input { resize: vertical; line-height: 1.6; }
   .hero-actions { align-items: stretch; flex-direction: column; } .hero-actions > * { width: 100%; }
   .console-body { padding-inline: 14px; } .console-flag-row { gap: 8px; grid-template-columns: 1.1fr .8fr 30px; }
   .org-overview-grid { grid-template-columns: 1fr; } .overview-card { min-height: 85px; }
+  .flow-exits { grid-template-columns: 1fr; }
   .page-heading-row h1 { font-size: 30px; }
 }
 

@@ -49,6 +49,9 @@ catalyst/
 │   ├── src/catalyst_sdk/    # client, evaluator, hashing, snapshot, transport
 │   ├── tests/
 │   └── examples/
+├── app-examples/
+│   ├── app-1/               # FastAPI shop checkout gated by a feature flag
+│   └── app-2/               # CLI inventory report gated by a feature flag
 ├── frontend/src/
 │   ├── auth/                # AuthContext, protected/public route wrappers
 │   ├── components/          # shell, sidebar, flag controls, rule builder, env UI
@@ -58,7 +61,6 @@ catalyst/
 │   ├── App.tsx              # route table
 │   ├── api.ts               # typed auth-aware client with refresh/retry
 │   └── main.tsx             # BrowserRouter + AuthProvider
-├── visual/                  # Archify diagrams (sources/*.json is the source of truth)
 ├── docker-compose.yml       # PostgreSQL + Redis
 ├── .env.example
 └── Makefile
@@ -188,6 +190,7 @@ Architecture:
 - `WorkspaceContext` owns org/project summaries, last-valid organization persistence, and org/project creation.
 - `useProject(projectId)` owns flags, environments, active environment/query state, polling, playground evaluation, and flag/environment/rule mutations.
 - `AppShell`/`Sidebar` handle organization switching and project navigation and link out to the public `/docs` SDK reference. The global header holds only branding, health status, and the user menu.
+- `LandingPage.tsx` carries the public narrative: hero → problem statement → capabilities → six objectives (each traced to a mechanism) → architecture → evaluation order → how it works. The architecture and evaluation diagrams are hand-built CSS rather than a runtime diagram library, so they paint with the page and add no dependency; the request flows from `catalyst_sdk` to the API and the snapshot comes back.
 - `DocsPage.tsx` is the public SDK reference at `/docs`, kept in sync with the SDK README by hand.
 - `lib/docsSearch.ts` owns the docs search index and matching so it is unit tested without rendering.
 - `lib/targeting.ts` owns the operator catalogue, shared value coercion, list-token splitting/joining, draft validation, and attribute-input parsing (`key=value` lines or JSON).
@@ -208,7 +211,7 @@ Design system (Retro Black & Gold):
 ## Python SDK
 
 - Distribution `sdk-catalyst`, import name `catalyst_sdk` (the `catalyst-sdk` PyPI name is taken by an unrelated project). Hatchling build, ships `py.typed`, `license = "MIT"` with a bundled `LICENSE`, only runtime dependency `httpx`.
-- `hashing.py` vendors MurmurHash3 x86_32 so bucketing needs no native extension; verified against `mmh3` and the server's `get_user_bucket()`.
+- `hashing.py` vendors MurmurHash3 `x86_32` so bucketing needs no native extension; verified against `mmh3` and the server's `get_user_bucket()`.
 - `evaluator.py` mirrors `app/services/evaluator.py`: kill switch → enable-all → rules by ascending priority → percentage rollout, with operator aliases normalized.
 - `client.py` reads as it evaluates: construction does no I/O, and every check makes a conditional request before deciding locally, so a dashboard toggle shows on the next check. Snapshot swaps are a single attribute assignment, so readers see a consistent view.
 - Reads are conditional (`If-None-Match`), so an unchanged environment costs a `304` with no body. `test_evaluation_is_sub_millisecond` asserts decision cost with `refresh_on_evaluate=False`.
@@ -222,6 +225,12 @@ Design system (Retro Black & Gold):
 - `for_user` returns a `UserScopedClient`, a `__slots__` view holding no transport, snapshot, or thread of its own; it shares the parent's, so scoping per request costs nothing. It deliberately has no `for_user`, so a scoped view cannot re-bind and carry one user's attributes to the next.
 - `backend/tests/test_sdk_parity.py` is a differential suite: it fuzzes both evaluators with identical inputs and requires identical values, reasons, and rule ids. Any change to evaluation semantics should keep it green.
 - Release: bump `pyproject.toml` version and merge. `.github/workflows/publish-sdk.yml` re-runs the SDK and parity suites and publishes to PyPI when the version is new, using Trusted Publishing (OIDC) so no token is stored in the repo.
+
+## Python Application Examples
+
+- `app-examples/app-1` is a FastAPI shop API. Its `express-checkout` flag selects an express or standard checkout response; it evaluates per request.
+- `app-examples/app-2` is a CLI inventory report. Its `low-stock-alerts` flag controls whether low-stock alerts are included.
+- Both use `CatalystClient`, load configuration from `.env` with `python-dotenv`, default to the `dev` environment, and include a `.env.example`. The SDK checks on each evaluation by default; neither app uses interval refresh.
 
 ## Local Development
 
@@ -252,7 +261,7 @@ Frontend (`cd frontend`):
 - `npm run test` — routing, auth-aware API client, targeting helpers, rule builder, rollout slider, docs search, flag card, API keys page
 - `npm run lint`
 - `npm run build`
-- **99 tests passing** across 9 files.
+- **100 tests passing** across 9 files.
 
 ## Deployment
 
@@ -273,17 +282,6 @@ Gotchas:
 - The frontend needs `VITE_API_BASE_URL` at build time; `api.ts` otherwise falls back to the relative `/api/v1` dev proxy path, which resolves against the Vercel origin and 404s. `frontend/vercel.json` supplies the SPA rewrite that keeps `/docs` and `/app/**` working on a hard refresh.
 - `CORS_ORIGINS` on the API must list the deployed frontend origin.
 - Local Postgres and Neon are separate databases. An SDK key or project created against `localhost:8000` does not exist in production and `/api/v1/bootstrap` answers `404 API key not found`. SDK keys are read-only and cannot be created over the API, so mint production keys from the production dashboard.
-
-## Visual Documentation (`visual/`)
-
-- Seven interactive source-backed diagrams generated with Archify: runtime architecture, SDK conditional read, toggle propagation, tenant onboarding, SDK release pipeline, SDK read-path lifecycle, and the evaluation PII boundary.
-- `visual/sources/*.json` is the editable source of truth; `visual/artifacts/*.html` is generated, delivered output with a SHA-256 receipt. Edit the JSON, never the HTML.
-- `index.html`, `<slug>.html`, and `assets/site.css` are generated by `visual/build-site.mjs` from a manifest of editorial copy. Change the copy in the build script, not the generated HTML.
-- `SRC n` badges resolve to a `file:line` in this repository, pinned to one commit. A diagram claim that is not true of the code is a bug in the diagram, not in the code.
-- Regeneration loop: `zsh visual/check.sh` validates all sources at `showcase` quality, `zsh visual/deliver.sh` renders and commits artifacts, `zsh visual/verify.sh` collects bounded desktop browser evidence, `node visual/build-site.mjs` regenerates the pages.
-- `deliver` is the only acceptance command. A non-zero exit is a failure and must never be described as success. Diagram readability is a separate human judgement.
-- All seven hold 9/9 showcase checks with zero composition errors. Six of seven fit a 1440x900 viewport with no scrolling; the SDK lifecycle overflows by 16px because the lifecycle renderer reserves three fixed bands and refuses a shorter `viewBox`. Do not fix that by shrinking node text below the 6px readability floor.
-- Geometry controls are per-diagram, so a change that fixes a corridor collision in one source routinely creates one in another.
 
 ## CI
 
