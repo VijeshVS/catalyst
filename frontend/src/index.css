@@ -1,52 +1,75 @@
 /* ────────────────────────────────────────────────────────
-   Catalyst — Retro Black & Gold Design System
+   Catalyst — Retro Ivory & Gold Design System
    Typography: Playfair Display + IBM Plex Mono
    ──────────────────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
 :root {
   /* ── Backgrounds ── */
-  --bg-void:      #080808;
-  --bg-primary:   #0E0E0E;
-  --bg-secondary: #141414;
-  --bg-tertiary:  #1C1C1C;
-  --bg-card:      rgba(20, 20, 20, 0.88);
-  --bg-overlay:   rgba(8, 8, 8, 0.80);
+  --bg-void:      #FFFDF7;   /* ink applied on top of deep-gold fills */
+  --bg-primary:   #FAF6EC;   /* warm ivory page */
+  --bg-secondary: #F1EAD9;
+  --bg-tertiary:  #E7DEC9;
+  --bg-card:      #FFFDF7;
+  --bg-overlay:   rgba(38, 29, 12, 0.42);
 
-  /* ── Gold Palette ── */
-  --gold-primary: #F5C518;
-  --gold-bright:  #FFD84D;
-  --gold-muted:   #A8840E;
-  --gold-deep:    #7A5E08;
-  --gold-faint:   rgba(245, 197, 24, 0.10);
-  --gold-wash:    rgba(245, 197, 24, 0.06);
-  --gold-glow:    rgba(245, 197, 24, 0.32);
-  --gold-glow-md: rgba(245, 197, 24, 0.50);
+  /* ── Gold Palette ──
+     Deep antique gold for text and borders: every value below keeps at
+     least 4.5:1 contrast on the ivory surfaces. The vivid gold fill pair
+     is reserved for solid controls and always pairs with dark ink. */
+  --gold-primary: #82600A;
+  --gold-bright:  #6E5006;
+  --gold-muted:   #7E5F1A;
+  --gold-deep:    #5A4305;
+  --gold-faint:   rgba(130, 96, 10, 0.10);
+  --gold-wash:    rgba(130, 96, 10, 0.06);
+  --gold-glow:    rgba(176, 124, 10, 0.22);
+  --gold-glow-md: rgba(176, 124, 10, 0.34);
+
+  /* Vivid gold for filled buttons/badges, paired with --ink-on-gold */
+  --gold-fill-1:       #F0BE2A;
+  --gold-fill-2:       #D69B10;
+  --gold-fill-hover-1: #F8CE48;
+  --gold-fill-hover-2: #E3A81C;
+  --ink-on-gold:       #241C0E;
 
   /* ── Amber Secondary ── */
-  --amber-accent: #D4862A;
-  --amber-faint:  rgba(212, 134, 42, 0.14);
+  --amber-accent: #9E560F;
+  --amber-faint:  rgba(158, 86, 15, 0.12);
 
   /* ── Status Colors ── */
-  --danger:        #C0392B;
-  --danger-bright: #E74C3C;
-  --danger-faint:  rgba(192, 57, 43, 0.18);
-  --danger-glow:   rgba(231, 76, 60, 0.40);
+  --danger:        #B33527;
+  --danger-bright: #B33527;
+  --danger-faint:  rgba(179, 53, 39, 0.10);
+  --danger-glow:   rgba(179, 53, 39, 0.22);
+  --danger-text:   #9E2418;
 
-  --success:       #27AE60;
-  --success-faint: rgba(39, 174, 96, 0.14);
-  --success-glow:  rgba(39, 174, 96, 0.30);
+  --success:       #1A7240;
+  --success-faint: rgba(26, 114, 64, 0.10);
+  --success-glow:  rgba(26, 114, 64, 0.20);
 
   /* ── Text ── */
-  --text-primary:   #F0E6C8;
-  --text-secondary: #9C8E72;
-  --text-muted:     #5C5347;
-  --text-code:      #F5C518;
+  --text-primary:   #241C0E;
+  --text-secondary: #5A4E38;
+  --text-muted:     #6B5F47;
+  --text-code:      #7A5A06;
+
+  /* ── Surfaces ──
+     Replaces the hardcoded dark overlays the components used to paint. */
+  --surface-1:     #FFFDF7;
+  --surface-2:     #F6F0E1;
+  --surface-3:     #EFE7D4;
+  --surface-glass: rgba(255, 253, 247, 0.90);
+  --sidebar-bg:    rgba(246, 240, 225, 0.72);
+  --shadow-soft:   rgba(74, 56, 16, 0.10);
+  --shadow-strong: rgba(74, 56, 16, 0.18);
+  --scrim:         rgba(38, 29, 12, 0.42);
+  --scrim-strong:  rgba(38, 29, 12, 0.55);
 
   /* ── Borders ── */
-  --border-color:  rgba(245, 197, 24, 0.14);
-  --border-hover:  rgba(245, 197, 24, 0.38);
-  --border-active: rgba(245, 197, 24, 0.70);
+  --border-color:  rgba(130, 96, 10, 0.28);
+  --border-hover:  rgba(130, 96, 10, 0.46);
+  --border-active: rgba(130, 96, 10, 0.78);
 
   /* ── Typography ── */
   --font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
@@ -79,8 +102,8 @@ body {
 
   /* Faint gold shimmer at top */
   background-image:
-    radial-gradient(ellipse 80% 40% at 50% -10%, rgba(245, 197, 24, 0.08) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 25% at 85% 90%,  rgba(212, 134, 42, 0.05) 0%, transparent 60%);
+    radial-gradient(ellipse 80% 40% at 50% -10%, rgba(176, 124, 10, 0.10) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 25% at 85% 90%,  rgba(158, 86, 15, 0.06) 0%, transparent 60%);
   background-attachment: fixed;
 }
 
@@ -126,6 +149,6 @@ textarea {
    Selection
    ──────────────────────────────────────────────────────── */
 ::selection {
-  background: rgba(245, 197, 24, 0.28);
+  background: rgba(130, 96, 10, 0.20);
   color: var(--text-primary);
 }
