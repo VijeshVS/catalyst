@@ -1,2 +1,0 @@
--e ../../packages/catalyst-python-sdk
-python-dotenv>=1.0,<2

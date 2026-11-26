@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reelwise — recommendations powered by Catalyst</title>
+    <meta
+      name="description"
+      content="A light-themed video recommendation demo whose ranking is gated by Catalyst feature flags."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23f6f1e7'/%3E%3Ccircle cx='16' cy='16' r='7.5' fill='none' stroke='%23a15c12' stroke-width='2.4'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='%23a15c12'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="ambient" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Reelwise home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="28" height="28" fill="none">
+            <circle cx="16" cy="16" r="11" stroke="currentColor" stroke-width="2" />
+            <circle cx="16" cy="16" r="3.2" fill="currentColor" />
+            <circle cx="16" cy="6.5" r="1.6" fill="currentColor" />
+            <circle cx="16" cy="25.5" r="1.6" fill="currentColor" />
+            <circle cx="6.5" cy="16" r="1.6" fill="currentColor" />
+            <circle cx="25.5" cy="16" r="1.6" fill="currentColor" />
+          </svg>
+        </span>
+        <span class="brand-text">
+          <strong>Reelwise</strong>
+          <span>Video, tuned to you</span>
+        </span>
+      </a>
+
+      <div class="topbar-meta">
+        <span class="env-pill" id="env-pill" hidden>dev</span>
+        <span class="health" id="health">
+          <span class="status-dot" id="status-dot" aria-hidden="true"></span>
+          <span id="health-text">Connecting to Catalyst</span>
+        </span>
+        <a
+          class="ghost-link"
+          href="https://catalyst-service.vercel.app"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Catalyst dashboard <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </header>
+
+    <div class="loading-line" id="loading-line" aria-hidden="true"><span></span></div>
+
+    <main class="shell">
+      <section class="audience" aria-labelledby="audience-title">
+        <div class="audience-copy">
+          <p class="eyebrow">Audience simulator</p>
+          <h1 id="audience-title">A recommendation rail that shows its reasoning.</h1>
+          <p class="lede">
+            Pick a viewer, market, taste and plan. Every control becomes a Catalyst
+            targeting attribute, and the flags below decide which ranking signals
+            are allowed to run.
+          </p>
+          <ul class="audience-notes" aria-label="What the controls drive">
+            <li><span class="note-dot"></span>Country drives location-aware ranking</li>
+            <li><span class="note-dot"></span>Genre drives the affinity boost</li>
+            <li><span class="note-dot"></span>Plan unlocks the premium shelf</li>
+          </ul>
+          <div class="demo-tip">
+            <p class="eyebrow">Try this</p>
+            <p>
+              Set the market to <strong>Global</strong> to drop location ranking. Switch
+              the plan to <strong>Free</strong> to hide the premium shelf. Shuffle the
+              viewer until <strong>autoplay</strong> flips sides.
+            </p>
+          </div>
+        </div>
+
+        <form class="controls" id="viewer-form" autocomplete="off">
+          <div class="control">
+            <label for="country">Market</label>
+            <div class="select-wrap">
+              <select id="country" name="country">
+                <option value="IN">India</option>
+                <option value="US">United States</option>
+                <option value="GB">United Kingdom</option>
+                <option value="JP">Japan</option>
+                <option value="DE">Germany</option>
+                <option value="BR">Brazil</option>
+                <option value="">Global (no country attribute)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="control">
+            <label for="genre">Most-watched genre</label>
+            <div class="select-wrap">
+              <select id="genre" name="genre">
+                <option value="Sci-Fi">Sci-Fi</option>
+                <option value="Drama">Drama</option>
+                <option value="Thriller">Thriller</option>
+                <option value="Action">Action</option>
+                <option value="Romance">Romance</option>
+                <option value="Comedy">Comedy</option>
+                <option value="Documentary">Documentary</option>
+                <option value="Animation">Animation</option>
+                <option value="">Surprise me (no attribute)</option>
+              </select>
+            </div>
+          </div>
+
+          <fieldset class="control plan-control">
+            <legend>Plan</legend>
+            <div class="segments" role="radiogroup" aria-label="Plan">
+              <label class="segment">
+                <input type="radio" name="plan" value="free" />
+                <span>Free</span>
+              </label>
+              <label class="segment">
+                <input type="radio" name="plan" value="premium" checked />
+                <span>Premium</span>
+              </label>
+              <label class="segment">
+                <input type="radio" name="plan" value="family" />
+                <span>Family</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="control viewer-control">
+            <label for="user-id">Viewer ID</label>
+            <div class="viewer-row">
+              <input id="user-id" name="user_id" type="text" value="viewer-1" spellcheck="false" />
+              <button type="button" class="shuffle" id="shuffle" title="Generate a new viewer">
+                <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true" fill="none">
+                  <path d="M2.5 5.5h3l7 9h4M13.5 2.5l3 3-3 3M2.5 14.5h3l2.2-2.8M12.5 5.5h6M14.5 12.5l2 2-2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                Shuffle
+              </button>
+            </div>
+            <p class="hint">The sticky rollout hashes the ID, so the same viewer keeps the same side.</p>
+          </div>
+
+          <button type="submit" class="primary">Refresh rail</button>
+        </form>
+      </section>
+
+      <div class="notice" id="notice" role="status" hidden>
+        <span class="notice-mark" aria-hidden="true">!</span>
+        <p id="notice-text"></p>
+      </div>
+
+      <section class="rail-section" aria-labelledby="rail-title">
+        <div class="rail-head">
+          <div>
+            <p class="eyebrow" id="mode-eyebrow">Personalized rail</p>
+            <h2 id="rail-title">Recommended for you</h2>
+            <p class="rail-subtitle" id="rail-subtitle">
+              Eight titles, ranked by the signals the flags allow.
+            </p>
+          </div>
+          <div class="rail-head-side">
+            <span class="mode-badge" id="mode-badge">
+              <span class="mode-dot" aria-hidden="true"></span>
+              <span id="mode-label">Personalized engine</span>
+            </span>
+            <span class="snapshot-meta" id="snapshot-meta">Waiting for snapshot</span>
+          </div>
+        </div>
+
+        <div class="rail" id="rail" aria-live="polite" aria-busy="true">
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        </div>
+      </section>
+
+      <section class="shelf-section" id="premium-section" aria-labelledby="shelf-title" hidden>
+        <div class="shelf-head">
+          <div>
+            <p class="eyebrow">Premium shelf</p>
+            <h2 id="shelf-title">Early access</h2>
+          </div>
+          <p class="shelf-note">
+            Unlocked by <code>premium-shelf</code> because this viewer is on a paid plan.
+          </p>
+        </div>
+        <div class="rail rail-shelf" id="premium-rail"></div>
+      </section>
+
+      <section class="flags" aria-labelledby="flags-title">
+        <div class="flags-head">
+          <div>
+            <p class="eyebrow">Decision ledger</p>
+            <h2 id="flags-title">Why this rail looks like this</h2>
+            <p class="rail-subtitle">
+              Every card below is a live Catalyst decision for the selected viewer.
+            </p>
+          </div>
+          <div class="flags-side">
+            <span class="counter" id="flag-counter">5 flags</span>
+            <span class="snapshot-meta" id="snapshot-meta-2">—</span>
+          </div>
+        </div>
+        <div class="flag-grid" id="flag-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="how" aria-labelledby="how-title">
+        <div>
+          <p class="eyebrow">Under the hood</p>
+          <h2 id="how-title">One refresh, five local decisions.</h2>
+        </div>
+        <ol class="how-steps">
+          <li>
+            <span class="step-number">01</span>
+            <p>The FastAPI process sends a conditional request with the last ETag.</p>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <p>An unchanged environment answers <code>304</code> with no snapshot body.</p>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <p>The Python SDK evaluates the five flags locally for this viewer.</p>
+          </li>
+          <li>
+            <span class="step-number">04</span>
+            <p>Reelwise ranks its own catalogue, using only the signals the flags allow.</p>
+          </li>
+        </ol>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>
+        Reelwise is a fictional catalogue built to demonstrate
+        <a href="https://catalyst-service.vercel.app" target="_blank" rel="noreferrer">Catalyst</a>.
+        Recommendations are computed locally; Catalyst supplies the decisions.
+      </p>
+      <p class="footer-links">
+        <a href="/docs" target="_blank" rel="noreferrer">API docs</a>
+        <span aria-hidden="true">·</span>
+        <a href="/api/health" target="_blank" rel="noreferrer">SDK health</a>
+      </p>
+    </footer>
+
+    <dialog class="detail" id="detail-dialog" aria-labelledby="detail-title">
+      <button class="detail-close" id="detail-close" aria-label="Close details">×</button>
+      <div class="detail-art" id="detail-art">
+        <div class="detail-topline">
+          <span id="detail-genre">Drama</span>
+          <span id="detail-year">2024</span>
+        </div>
+        <p class="detail-poster-title" id="detail-poster-title">Monsoon Lines</p>
+        <button class="detail-play" id="detail-play" aria-label="Play simulated preview">
+          <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+            <path d="M8 5.5v13l11-6.5-11-6.5Z" fill="currentColor" />
+          </svg>
+        </button>
+        <div class="preview-progress" aria-hidden="true"><span></span></div>
+        <p class="preview-label" id="preview-label">Preview</p>
+      </div>
+      <div class="detail-body">
+        <p class="eyebrow" id="detail-kicker">In your rail</p>
+        <h2 id="detail-title">—</h2>
+        <p class="detail-tagline" id="detail-tagline"></p>
+        <dl class="detail-meta">
+          <div><dt>Year</dt><dd id="detail-meta-year">—</dd></div>
+          <div><dt>Runtime</dt><dd id="detail-meta-runtime">—</dd></div>
+          <div><dt>Rating</dt><dd id="detail-meta-rating">—</dd></div>
+          <div><dt>Markets</dt><dd id="detail-meta-markets">—</dd></div>
+        </dl>
+        <div class="detail-signals" id="detail-signals"></div>
+        <p class="autoplay-note" id="autoplay-note"></p>
+      </div>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

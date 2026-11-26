@@ -50,8 +50,7 @@ catalyst/
 │   ├── tests/
 │   └── examples/
 ├── app-examples/
-│   ├── app-1/               # FastAPI shop checkout gated by a feature flag
-│   └── app-2/               # CLI inventory report gated by a feature flag
+│   └── video-recommendations/  # Reelwise demo: FastAPI backend + static frontend
 ├── frontend/src/
 │   ├── auth/                # AuthContext, protected/public route wrappers
 │   ├── components/          # shell, sidebar, flag controls, rule builder, env UI
@@ -230,15 +229,15 @@ Design system (Retro Ivory & Gold — light):
 
 ## Python Application Examples
 
-- `app-examples/app-1` is a FastAPI shop API. Its `express-checkout` flag selects an express or standard checkout response; it evaluates per request.
-- `app-examples/app-2` is a CLI inventory report. Its `low-stock-alerts` flag controls whether low-stock alerts are included.
-- Both use `CatalystClient`, load configuration from `.env` with `python-dotenv`, default to the `dev` environment, and include a `.env.example`. The SDK checks on each evaluation by default; neither app uses interval refresh.
+- `app-examples/video-recommendations` is the Reelwise demo: a FastAPI backend plus a dependency-free light-themed frontend that ranks a fictional 22-title video catalogue. Five flags cover every evaluation step: `recommendation-engine` (enable-all/kill switch), `location-aware-ranking` and `genre-affinity-boost` (attribute rules), `premium-shelf` (plan rule), and `autoplay-previews` (sticky 50% rollout). The backend refreshes once per request, evaluates five flags locally with `refresh_on_evaluate=False`, and returns a decision ledger with each value, reason, rule id and bucket. Ranking lives in `recommender.py`; `scripts/provision_demo.py` idempotently provisions the account, project, flags, rules and SDK key. Run it with `make dev-video` on `:8002`.
+- The example uses `CatalystClient`, loads configuration from `.env` with `python-dotenv`, defaults to the `dev` environment, and includes a `.env.example`. Reelwise refreshes once per request and evaluates locally; it does not use interval refresh.
 
 ## Local Development
 
 - `make up` — start PostgreSQL (`:5432`) and Redis (`:6379`), both with health checks and persistent volumes.
 - `make dev-api` — FastAPI on `:8000`
 - `make dev-web` — Vite on `:5173`
+- `make dev-video` — Reelwise example on `:8002`
 - `make test` — backend suite including the parity suite
 - `make test-sdk` — SDK suite
 - `make build-sdk` — build the SDK wheel
