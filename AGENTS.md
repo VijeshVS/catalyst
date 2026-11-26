@@ -201,11 +201,13 @@ Architecture:
 - `RuleBuilder` derives its value control from the attribute's value kind (boolean toggle, enum select, numeric input, token chips for `in`/`not_in`) and renders a live match preview of the whole rule chain.
 - `RolloutSlider` is debounced: the thumb moves on a local draft, the mutation commits after `debounceMs` (default 400ms) and flushes on pointer/key release or blur, so a drag is one `PATCH`. `useProject.updateRollout` applies values optimistically under a per-flag/per-environment sequence number so a slow response cannot overwrite a newer edit.
 
-Design system (Retro Black & Gold):
+Design system (Retro Ivory & Gold — light):
 
 - Fonts: `Playfair Display` for headings, stat values, brand; `IBM Plex Mono` for UI text, labels, code badges.
-- Palette tokens in `index.css`: `--gold-primary: #F5C518`, `--gold-bright: #FFD84D`, `--amber-accent: #D4862A`, `--bg-primary: #0E0E0E`, `--text-primary: #F0E6C8`, `--danger-bright: #E74C3C`, `--success: #27AE60`.
-- Patterns: glassmorphism dark cards with gold borders, 3px gold accent strip on flag cards, gold gradient CTA buttons, pulsing crimson kill-switch glow, custom gold range slider, dashed gold playground boxes, radial gold shimmer on the body.
+- Palette tokens in `index.css`: warm ivory surfaces (`--bg-primary: #FAF6EC`, `--surface-1/2/3`), dark antique-gold accents (`--gold-primary: #82600A`, `--gold-bright: #6E5006`, `--amber-accent: #9E560F`), warm ink text (`--text-primary: #241C0E`, `--text-secondary: #5A4E38`, `--text-muted: #6B5F47`), `--danger-bright: #B33527`, `--success: #1A7240`.
+- Gold text/border tokens are deliberately deep so every label clears 4.5:1 on the ivory surfaces. The vivid `--gold-fill-1/2` pair is reserved for solid controls and always pairs with `--ink-on-gold`.
+- Patterns: light cards with gold borders and warm shadows, 3px gold accent strip on flag cards, gold gradient CTA buttons with dark ink, pulsing crimson kill-switch glow, custom gold range slider, dashed gold playground boxes, faint gold radial shimmer on the body.
+- Hardcoded dark overlays were replaced by semantic surface tokens (`--surface-1/2/3`, `--surface-glass`, `--sidebar-bg`, `--scrim`, `--shadow-soft/strong`); use those instead of raw `rgba(0,0,0,…)` values.
 - Tokens live in `index.css`; component styles in `App.css`.
 
 ## Python SDK
