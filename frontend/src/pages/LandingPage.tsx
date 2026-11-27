@@ -164,7 +164,7 @@ export function LandingPage() {
           <div className="hero-orbit orbit-two" aria-hidden="true" />
           <div className="hero-grid-mark" aria-hidden="true" />
           <div className="hero-copy">
-            <span className="eyebrow hero-eyebrow">The calm layer between idea and impact</span>
+            <span className="eyebrow hero-eyebrow">The quiet space where ideas become impact</span>
             <h1 aria-label="Ship features with confidence">Ship features<br /><em>with confidence</em></h1>
             <p>
               Catalyst gives product teams a precise, observable control plane for feature flags,
